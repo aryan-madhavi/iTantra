@@ -11,7 +11,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.astramesh.app"
+        applicationId = "com.astra.itantra"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

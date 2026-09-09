@@ -59,7 +59,7 @@ fun ChatListScreen(
     Scaffold(
         topBar = {
             AstraTopBar(
-                title = "AstraMesh",
+                title = "iTantra",
                 connectedPeersCount = chats.size
             )
         },
