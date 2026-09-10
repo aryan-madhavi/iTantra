@@ -25,6 +25,7 @@ object BlePermissionManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        permissions.add(Manifest.permission.RECORD_AUDIO)
         return permissions.toTypedArray()
     }
 

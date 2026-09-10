@@ -53,4 +53,26 @@ class CoreModuleTest {
         val clampedLow = BatteryStatus(levelPercent = -10, isCharging = false, isPowerSaveMode = true)
         assertThat(clampedLow.normalizedLevel).isEqualTo(0.0f)
     }
+
+    @Test
+    fun `voice payload serialization and deserialization roundtrip`() {
+        val sampleAudio = byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
+        val payload = VoicePayload(
+            mode = VoiceMode.WALKIE_TALKIE,
+            sequence = 12,
+            isFinal = true,
+            transcript = "Roger that",
+            audioData = sampleAudio
+        )
+
+        val bytes = payload.serialize()
+        assertThat(VoicePayload.isVoicePayload(bytes)).isTrue()
+
+        val restored = VoicePayload.deserialize(bytes)
+        assertThat(restored.mode).isEqualTo(VoiceMode.WALKIE_TALKIE)
+        assertThat(restored.sequence).isEqualTo(12)
+        assertThat(restored.isFinal).isTrue()
+        assertThat(restored.transcript).isEqualTo("Roger that")
+        assertThat(restored.audioData).isEqualTo(sampleAudio)
+    }
 }

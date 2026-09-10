@@ -128,6 +128,7 @@ class MeshEngine(
     ): AstraResult<PacketId> {
         val seq = nextSequenceNumber++
         val pid = PacketId.generate(localNodeId, seq, System.currentTimeMillis())
+        AstraLog.d("MeshEngine", "SEND destination=$destination pid=$pid priority=$priority payloadSize=${payload.size}")
 
         val packet = AstraPacket(
             type = if (destination.isBroadcast) AstraPacketType.DATA_BROADCAST else AstraPacketType.DATA_UNICAST,
@@ -188,12 +189,14 @@ class MeshEngine(
     }
 
     private fun handleInboundSlice(slice: com.astramesh.ble.BleSlice, fromNode: NodeId) {
+        AstraLog.d("MeshEngine", "RECV slice packetIndex=${slice.packetIndex} sliceSeq=${slice.sliceSeq}/${slice.totalSlices} from $fromNode")
         val completePacketBytes = reassembler.feedSlice(slice) ?: return
+        AstraLog.d("MeshEngine", "REASSEMBLE packetIndex=${slice.packetIndex} totalBytes=${completePacketBytes.size} from $fromNode")
 
         val packet = try {
             AstraPacket.deserialize(completePacketBytes)
         } catch (e: Exception) {
-            AstraLog.e("MeshEngine", "Failed to deserialize packet from $fromNode", e)
+            AstraLog.e("MeshEngine", "ERROR Failed to deserialize packet from $fromNode", e)
             droppedPacketsCounter.incrementAndGet()
             return
         }
@@ -234,7 +237,19 @@ class MeshEngine(
         val chatRepo = chatRepository ?: return
 
         scope.launch {
-            val contentStr = String(packet.payload, Charsets.UTF_8)
+            val isVoice = com.astramesh.core.VoicePayload.isVoicePayload(packet.payload)
+            val (contentType, contentStr) = if (isVoice) {
+                val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
+                val snippet = if (voicePayload.transcript.isNotBlank()) {
+                    "[Voice Note]: ${voicePayload.transcript}"
+                } else {
+                    "[Voice Note ${voicePayload.mode.name}]"
+                }
+                Pair(com.astramesh.domain.model.MessageContentType.AUDIO_NOTE, snippet)
+            } else {
+                Pair(com.astramesh.domain.model.MessageContentType.TEXT, String(packet.payload, Charsets.UTF_8))
+            }
+
             val chatId = if (packet.destination.isBroadcast) {
                 com.astramesh.core.ChatId("chat_broadcast")
             } else {
@@ -248,9 +263,9 @@ class MeshEngine(
                 recipientId = packet.destination,
                 timestamp = System.currentTimeMillis(),
                 content = contentStr,
-                contentType = com.astramesh.domain.model.MessageContentType.TEXT,
+                contentType = contentType,
                 status = com.astramesh.domain.model.MessageStatus.DELIVERED,
-                priority = com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                priority = if (packet.flags.isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
             )
 
             messageRepo.insertMessage(message)
@@ -268,6 +283,7 @@ class MeshEngine(
                     unreadCount = existingChat.unreadCount + 1
                 )
             )
+            AstraLog.d("MeshEngine", "UI_UPDATE persisted incoming message=${message.id} from=${packet.source} isVoice=$isVoice")
         }
     }
 

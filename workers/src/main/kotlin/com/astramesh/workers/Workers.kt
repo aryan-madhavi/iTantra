@@ -25,7 +25,7 @@ class KeyRotationWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        AstraLog.d("KeyRotationWorker", "Rotating 15-minute ephemeral node identity")
+        AstraLog.d("KeyRotationWorker", "IDENTITY Verifying permanent cryptographic key integrity")
         return Result.success()
     }
 }

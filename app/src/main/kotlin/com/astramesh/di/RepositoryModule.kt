@@ -29,8 +29,10 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideIdentityRepository(): IdentityRepository {
-        return IdentityRepositoryImpl()
+    fun provideIdentityRepository(
+        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+    ): IdentityRepository {
+        return IdentityRepositoryImpl(context)
     }
 
     @Provides

@@ -87,4 +87,12 @@ object MeshModule {
             chatRepository = chatRepository
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideVoiceEngineManager(
+        @ApplicationContext context: Context
+    ): com.astramesh.services.VoiceEngineManager {
+        return com.astramesh.services.VoiceEngineManager(context)
+    }
 }

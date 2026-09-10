@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var sendMessageUseCase: SendMessageUseCase
     @Inject lateinit var discoverPeersUseCase: DiscoverPeersUseCase
     @Inject lateinit var verifyPeerTrustUseCase: VerifyPeerTrustUseCase
+    @Inject lateinit var voiceEngineManager: com.astramesh.services.VoiceEngineManager
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -106,7 +107,8 @@ class MainActivity : ComponentActivity() {
                     meshRepository = meshRepository,
                     sendMessageUseCase = sendMessageUseCase,
                     discoverPeersUseCase = discoverPeersUseCase,
-                    verifyPeerTrustUseCase = verifyPeerTrustUseCase
+                    verifyPeerTrustUseCase = verifyPeerTrustUseCase,
+                    voiceEngineManager = voiceEngineManager
                 )
             }
         }
@@ -130,7 +132,8 @@ fun MainAppContent(
     meshRepository: MeshRepository,
     sendMessageUseCase: SendMessageUseCase,
     discoverPeersUseCase: DiscoverPeersUseCase,
-    verifyPeerTrustUseCase: VerifyPeerTrustUseCase
+    verifyPeerTrustUseCase: VerifyPeerTrustUseCase,
+    voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
 ) {
     var localNodeId by remember { mutableStateOf(NodeId(0L)) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -154,7 +157,8 @@ fun MainAppContent(
         meshRepository = meshRepository,
         sendMessageUseCase = sendMessageUseCase,
         discoverPeersUseCase = discoverPeersUseCase,
-        verifyPeerTrustUseCase = verifyPeerTrustUseCase
+        verifyPeerTrustUseCase = verifyPeerTrustUseCase,
+        voiceEngineManager = voiceEngineManager
     )
 }
 
@@ -168,7 +172,8 @@ fun MainAppScaffold(
     meshRepository: MeshRepository,
     sendMessageUseCase: SendMessageUseCase,
     discoverPeersUseCase: DiscoverPeersUseCase,
-    verifyPeerTrustUseCase: VerifyPeerTrustUseCase
+    verifyPeerTrustUseCase: VerifyPeerTrustUseCase,
+    voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -274,7 +279,8 @@ fun MainAppScaffold(
                             chatId = chatId,
                             recipientId = recipientNodeId,
                             messageRepository = messageRepository,
-                            sendMessageUseCase = sendMessageUseCase
+                            sendMessageUseCase = sendMessageUseCase,
+                            voiceEngineManager = voiceEngineManager
                         )
                     }
 

@@ -1,6 +1,16 @@
 package com.astramesh.feature.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +29,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Emergency
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,21 +53,36 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.astramesh.common.AstraLog
 import com.astramesh.core.NodeId
+import com.astramesh.core.VoiceMode
 import com.astramesh.domain.model.Message
+import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.model.MessageStatus
+import com.astramesh.ui.components.PulsingStatusDot
+import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
+import com.astramesh.ui.theme.AstraCrimson
 import com.astramesh.ui.theme.AstraCyan
 import com.astramesh.ui.theme.AstraEmerald
 import com.astramesh.ui.theme.AstraOutline
@@ -64,21 +103,69 @@ fun ConversationScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
+    val isRecordingPtt by viewModel.isRecordingPtt.collectAsState()
+    val currentVoiceMode by viewModel.currentVoiceMode.collectAsState()
+    val isContinuousModeActive by viewModel.isContinuousModeActive.collectAsState()
+    val continuousState by viewModel.continuousState.collectAsState()
+    val liveRms by viewModel.liveRms.collectAsState()
+    val recordingDurationSec by viewModel.recordingDurationSec.collectAsState()
+    val liveTranscript by viewModel.liveTranscript.collectAsState()
+    val isReceiverSpeaking by viewModel.isReceiverSpeaking.collectAsState()
+
+    var showSosConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showSosConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSosConfirmDialog = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AstraCrimson) },
+            title = { Text("Broadcast Emergency SOS?", color = AstraTextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "This transmits a high-priority emergency packet across all mesh hops to every nearby peer.",
+                    color = AstraTextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSosConfirmDialog = false
+                        viewModel.sendEmergencySos("EMERGENCY SOS: Immediate assistance required")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson)
+                ) {
+                    Text("Broadcast SOS", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSosConfirmDialog = false }) {
+                    Text("Cancel", color = AstraTextSecondary)
+                }
+            },
+            containerColor = AstraSurfaceVariant
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = viewModel.recipientId.toHex(),
+                                color = AstraTextPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            PulsingStatusDot(isActive = true)
+                        }
                         Text(
-                            text = viewModel.recipientId.toHex(),
-                            color = AstraTextPrimary,
-                            fontSize = 16.sp
-                        )
-                        Text(
-                            text = "Direct P2P Mesh Channel",
-                            color = AstraEmerald,
-                            fontSize = 12.sp
+                            text = "P2P Mesh Link • ${currentVoiceMode.name.replace('_', ' ')}",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 },
@@ -103,6 +190,73 @@ fun ConversationScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Voice Mode Selector Ribbon
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AstraSurfaceVariant.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AssistChip(
+                    onClick = { viewModel.setVoiceMode(VoiceMode.PUSH_TO_TALK) },
+                    label = { Text("PTT", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan.copy(alpha = 0.25f) else Color.Transparent,
+                        labelColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan else AstraTextSecondary,
+                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan else AstraTextSecondary
+                    )
+                )
+                AssistChip(
+                    onClick = { viewModel.setVoiceMode(VoiceMode.WALKIE_TALKIE) },
+                    label = { Text("Walkie-Talkie", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
+                        labelColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald else AstraTextSecondary,
+                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald else AstraTextSecondary
+                    )
+                )
+                AssistChip(
+                    onClick = { viewModel.setVoiceMode(VoiceMode.EMERGENCY) },
+                    label = { Text("SOS Voice", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson.copy(alpha = 0.25f) else Color.Transparent,
+                        labelColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson else AstraTextSecondary,
+                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson else AstraTextSecondary
+                    )
+                )
+                AssistChip(
+                    onClick = { viewModel.toggleContinuousMode() },
+                    label = { Text(if (isContinuousModeActive) "STT: ON" else "STT: OFF", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Hearing, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (isContinuousModeActive) AstraCyan.copy(alpha = 0.35f) else Color.Transparent,
+                        labelColor = if (isContinuousModeActive) AstraCyan else AstraTextSecondary,
+                        leadingIconContentColor = if (isContinuousModeActive) AstraCyan else AstraTextSecondary
+                    )
+                )
+            }
+
+            // Voice Control Panel (PTT / Walkie / SOS / Continuous)
+            VoiceControlPanel(
+                voiceMode = currentVoiceMode,
+                isRecording = isRecordingPtt,
+                isContinuous = isContinuousModeActive,
+                continuousState = continuousState,
+                liveRms = liveRms,
+                recordingDurationSec = recordingDurationSec,
+                liveTranscript = liveTranscript,
+                isReceiverSpeaking = isReceiverSpeaking,
+                onPttStart = viewModel::startPtt,
+                onPttStop = viewModel::stopPtt,
+                onSosClicked = { showSosConfirmDialog = true }
+            )
+
+            // Chat Message Stream
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -117,7 +271,7 @@ fun ConversationScreen(
                 }
             }
 
-            // Input bar
+            // Input Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -129,7 +283,7 @@ fun ConversationScreen(
                     value = inputText,
                     onValueChange = viewModel::onInputTextChanged,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Write encrypted message...", color = AstraTextSecondary) },
+                    placeholder = { Text("Write encrypted mesh message...", color = AstraTextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = AstraTextPrimary,
                         unfocusedTextColor = AstraTextPrimary,
@@ -146,7 +300,7 @@ fun ConversationScreen(
                 IconButton(
                     onClick = viewModel::sendMessage,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
                         .background(AstraCyan)
                 ) {
@@ -157,6 +311,288 @@ fun ConversationScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun VoiceControlPanel(
+    voiceMode: VoiceMode,
+    isRecording: Boolean,
+    isContinuous: Boolean,
+    continuousState: ContinuousState,
+    liveRms: Int,
+    recordingDurationSec: Int,
+    liveTranscript: String,
+    isReceiverSpeaking: Boolean,
+    onPttStart: () -> Unit,
+    onPttStop: () -> Unit,
+    onSosClicked: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            when (voiceMode) {
+                VoiceMode.PUSH_TO_TALK -> {
+                    Text(
+                        text = if (isRecording) "RECORDING (HOLD TO TALK)" else "PUSH-TO-TALK MODE",
+                        color = if (isRecording) AstraCrimson else AstraCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    WaveformVisualizer(rms = liveRms, isRecording = isRecording)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    HoldToTalkButton(
+                        isRecording = isRecording,
+                        label = if (isRecording) "Release to Send (${recordingDurationSec}s)" else "Hold to Talk",
+                        buttonColor = if (isRecording) AstraCrimson else AstraCyan,
+                        iconTint = if (isRecording) Color.White else Color.Black,
+                        onPressStart = onPttStart,
+                        onPressStop = onPttStop
+                    )
+                }
+                VoiceMode.WALKIE_TALKIE -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isReceiverSpeaking) "PEER TRANSMITTING (BUSY)" else if (isRecording) "TRANSMITTING..." else "WALKIE-TALKIE (HALF-DUPLEX)",
+                            color = if (isReceiverSpeaking) AstraAmber else if (isRecording) AstraEmerald else AstraTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (isReceiverSpeaking) {
+                            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = AstraAmber, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    WaveformVisualizer(rms = liveRms, isRecording = isRecording || isReceiverSpeaking)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    HoldToTalkButton(
+                        isRecording = isRecording,
+                        label = if (isRecording) "Transmitting (${recordingDurationSec}s)..." else "Hold to Transmit",
+                        buttonColor = if (isRecording) AstraEmerald else AstraSurface,
+                        iconTint = if (isRecording) Color.Black else AstraEmerald,
+                        enabled = !isReceiverSpeaking,
+                        onPressStart = onPttStart,
+                        onPressStop = onPttStop
+                    )
+                }
+                VoiceMode.EMERGENCY -> {
+                    Text(
+                        text = "EMERGENCY SOS VOICE BROADCAST",
+                        color = AstraCrimson,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Highest mesh packet priority with multi-hop flood delivery",
+                        color = AstraTextSecondary,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onSosClicked,
+                            colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Broadcast SOS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isRecording) AstraCrimson else AstraSurface)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            onPttStart()
+                                            tryAwaitRelease()
+                                            onPttStop()
+                                        }
+                                    )
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.White else AstraCrimson, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isRecording) "Sending (${recordingDurationSec}s)..." else "Hold SOS Voice",
+                                    color = if (isRecording) Color.White else AstraCrimson,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                VoiceMode.CONTINUOUS -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "HANDS-FREE CONTINUOUS SPEECH (STT/TTS)",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = continuousState.name,
+                            color = when (continuousState) {
+                                ContinuousState.LISTENING -> AstraEmerald
+                                ContinuousState.SPEECH_DETECTED, ContinuousState.TRANSCRIBING -> AstraCyan
+                                ContinuousState.SPEAKING -> AstraAmber
+                                else -> AstraTextSecondary
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    WaveformVisualizer(rms = liveRms, isRecording = isContinuous)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (liveTranscript.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AstraSurface)
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = "Transcript: \"$liveTranscript\"",
+                                color = AstraTextPrimary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HoldToTalkButton(
+    isRecording: Boolean,
+    label: String,
+    buttonColor: Color,
+    iconTint: Color,
+    enabled: Boolean = true,
+    onPressStart: () -> Unit,
+    onPressStop: () -> Unit
+) {
+    val transition = rememberInfiniteTransition(label = "pulse")
+    val scale by transition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "btnScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .scale(if (isRecording) scale else 1f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) buttonColor else AstraOutline)
+            .pointerInput(enabled) {
+                if (enabled) {
+                    detectTapGestures(
+                        onPress = {
+                            onPressStart()
+                            tryAwaitRelease()
+                            onPressStop()
+                        }
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                color = iconTint,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun WaveformVisualizer(rms: Int, isRecording: Boolean) {
+    val normalized = (rms / 300).coerceIn(1, 12)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(26.dp)
+            .background(AstraSurface.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val barCount = 24
+        for (i in 0 until barCount) {
+            val heightFactor = if (isRecording) {
+                ((i * 7 + rms) % normalized + 2).coerceIn(2, 22)
+            } else {
+                3
+            }
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(heightFactor.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (isRecording) AstraCyan else AstraOutline)
+            )
         }
     }
 }
@@ -187,6 +623,15 @@ fun MessageBubble(
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column {
+                if (message.priority == MessagePriority.EMERGENCY) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Emergency, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("EMERGENCY ALERT", color = AstraCrimson, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
                 Text(
                     text = message.content,
                     color = AstraTextPrimary,
@@ -234,3 +679,4 @@ fun MessageBubble(
         }
     }
 }
+

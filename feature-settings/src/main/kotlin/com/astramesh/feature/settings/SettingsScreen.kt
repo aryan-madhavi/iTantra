@@ -1,5 +1,6 @@
 package com.astramesh.feature.settings
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,14 +18,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -36,9 +43,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.astramesh.common.AstraLog
 import com.astramesh.ui.components.AstraTopBar
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -55,8 +67,13 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onShowQrClicked: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     val displayName by viewModel.displayName.collectAsState()
-    val ephemeralId by viewModel.ephemeralNodeId.collectAsState()
+    val permanentId by viewModel.permanentNodeId.collectAsState()
+    val fingerprint by viewModel.publicKeyFingerprint.collectAsState()
+    val trustStatus by viewModel.trustStatus.collectAsState()
     val meshStatus by viewModel.meshStatus.collectAsState()
 
     Scaffold(
@@ -75,7 +92,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // Identity Card
+            // Cryptographic Identity Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
@@ -100,24 +117,63 @@ fun SettingsScreen(
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                text = "Rotating every 15 minutes (Anti-Tracking)",
-                                color = AstraEmerald,
-                                fontSize = 12.sp
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = AstraEmerald,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = trustStatus,
+                                    color = AstraEmerald,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Permanent Device ID
                     Text(
-                        text = "Current Ephemeral Node ID: ${ephemeralId?.toHex() ?: "Calculating..."}",
+                        text = "Permanent Device ID",
                         color = AstraTextSecondary,
-                        fontSize = 13.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = permanentId?.toHex() ?: "Initializing...",
+                        color = AstraCyan,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Public Key Fingerprint
+                    if (fingerprint.isNotEmpty()) {
+                        Text(
+                            text = "Public Key Fingerprint",
+                            color = AstraTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = fingerprint,
+                            color = AstraTextPrimary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Display Name
                     OutlinedTextField(
                         value = displayName,
                         onValueChange = viewModel::updateDisplayName,
@@ -131,10 +187,14 @@ fun SettingsScreen(
                         )
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
+                    // Show Pairing QR Code
                     Button(
-                        onClick = onShowQrClicked,
+                        onClick = {
+                            AstraLog.d("SettingsScreen", "UI Show pairing QR clicked")
+                            onShowQrClicked()
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = AstraCyan),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
@@ -142,6 +202,56 @@ fun SettingsScreen(
                         Icon(Icons.Default.QrCode, contentDescription = null, tint = Color.Black)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Show Pairing QR Code", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Export / Import Identity Actions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val exported = viewModel.exportIdentity()
+                                clipboardManager.setText(AnnotatedString(exported))
+                                Toast.makeText(context, "Permanent Identity copied to clipboard", Toast.LENGTH_SHORT).show()
+                                AstraLog.d("SettingsScreen", "UI Identity exported to clipboard")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export", color = AstraCyan, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                Toast.makeText(context, "Identity import: Read pairing QR or file", Toast.LENGTH_SHORT).show()
+                                AstraLog.d("SettingsScreen", "UI Import identity requested")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Key, contentDescription = null, tint = AstraEmerald, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Import", color = AstraEmerald, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.resetIdentity {
+                                    Toast.makeText(context, "Cryptographic Identity Reset", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset", color = AstraCrimson, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -174,7 +284,11 @@ fun SettingsScreen(
 
             // Panic Wipe Button
             Button(
-                onClick = { viewModel.emergencyWipeAllData {} },
+                onClick = {
+                    viewModel.emergencyWipeAllData {
+                        Toast.makeText(context, "All keys wiped", Toast.LENGTH_LONG).show()
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
@@ -199,3 +313,4 @@ fun MetricRow(label: String, value: String) {
         Text(value, color = AstraTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
+

@@ -112,9 +112,9 @@ class GattClientManager(
         AstraLog.d("GattClientManager", "BLE_WRITE to node $nodeId length=${data.size}")
         val success = gatt.writeCharacteristic(txChar)
         if (success) {
-            AstraLog.d("GattClientManager", "WRITE_SUCCESS to node $nodeId")
+            AstraLog.d("GattClientManager", "WRITE_OK to node $nodeId length=${data.size}")
         } else {
-            AstraLog.w("GattClientManager", "WRITE_FAILED to node $nodeId")
+            AstraLog.w("GattClientManager", "WRITE_FAIL to node $nodeId length=${data.size}")
         }
 
         return if (success) AstraResult.Success(Unit) else AstraResult.Failure("Failed to initiate write on $nodeId")

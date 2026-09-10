@@ -62,9 +62,62 @@ class SendMessageUseCase(
             )
         )
 
+        com.astramesh.common.AstraLog.d("SendMessageUseCase", "MSG_SEND id=${message.id} senderId=$senderId recipientId=$recipientId")
         // Dispatch through mesh
         val payload = content.toByteArray(Charsets.UTF_8)
         val sendResult = meshRepository.sendPacket(recipientId, payload, priority)
+        if (sendResult.isSuccess) {
+            messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
+        }
+
+        return AstraResult.Success(message)
+    }
+
+    suspend fun sendVoiceMessage(
+        chatId: ChatId,
+        recipientId: NodeId,
+        voicePayload: com.astramesh.core.VoicePayload,
+        priority: MessagePriority = MessagePriority.DIRECT_MESSAGE
+    ): AstraResult<Message> {
+        val senderId = identityRepository.getRotatingNodeId()
+        val textSnippet = if (voicePayload.transcript.isNotBlank()) {
+            "[Voice Note]: ${voicePayload.transcript}"
+        } else {
+            "[Voice Note ${voicePayload.mode.name}]"
+        }
+
+        val message = Message(
+            id = MessageId(UUID.randomUUID().toString()),
+            chatId = chatId,
+            senderId = senderId,
+            recipientId = recipientId,
+            timestamp = System.currentTimeMillis(),
+            content = textSnippet,
+            contentType = MessageContentType.AUDIO_NOTE,
+            status = MessageStatus.QUEUED,
+            priority = priority
+        )
+
+        val insertResult = messageRepository.insertMessage(message)
+        if (insertResult.isFailure) return AstraResult.Failure((insertResult as AstraResult.Failure).error)
+
+        // Update chat thread
+        val existingChat = chatRepository.getChatById(chatId) ?: Chat(
+            id = chatId,
+            title = recipientId.toHex(),
+            type = if (recipientId.isBroadcast) ChatType.BROADCAST else ChatType.DIRECT,
+            participantIds = listOf(senderId, recipientId)
+        )
+        chatRepository.insertOrUpdateChat(
+            existingChat.copy(
+                lastMessage = message,
+                updatedAt = message.timestamp
+            )
+        )
+
+        // Dispatch serialized binary voice payload through mesh
+        val payloadBytes = voicePayload.serialize()
+        val sendResult = meshRepository.sendPacket(recipientId, payloadBytes, priority)
         if (sendResult.isSuccess) {
             messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
         }

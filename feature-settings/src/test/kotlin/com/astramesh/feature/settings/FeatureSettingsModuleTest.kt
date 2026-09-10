@@ -39,7 +39,8 @@ class FeatureSettingsModuleTest {
 
         coEvery { identityRepo.getDisplayName() } returns "Alice"
         coEvery { identityRepo.getLocalIdentity() } returns keyPair
-        coEvery { meshRepo.meshStatus } returns MutableStateFlow(MeshStatus())
+        coEvery { identityRepo.getRotatingNodeId() } returns com.astramesh.core.NodeId.fromPublicKey(keyPair.publicKey)
+        io.mockk.every { meshRepo.meshStatus } returns MutableStateFlow(MeshStatus())
 
         val viewModel = SettingsViewModel(identityRepo, meshRepo)
         testScheduler.advanceUntilIdle()
