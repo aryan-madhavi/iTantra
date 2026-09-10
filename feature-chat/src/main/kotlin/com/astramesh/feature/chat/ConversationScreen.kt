@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.VolumeUp
@@ -145,6 +146,9 @@ fun ConversationScreen(
         )
     }
 
+    val recipientDisplayName by viewModel.recipientDisplayName.collectAsState()
+    val displayName = recipientDisplayName ?: "Device ${viewModel.recipientId.toHex().take(8)}"
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -152,11 +156,10 @@ fun ConversationScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = viewModel.recipientId.toHex(),
+                                text = displayName,
                                 color = AstraTextPrimary,
                                 fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                                fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             PulsingStatusDot(isActive = true)
@@ -266,7 +269,13 @@ fun ConversationScreen(
             ) {
                 items(messages.reversed(), key = { it.id.value }) { message ->
                     val isFromMe = message.senderId == localNodeId
-                    MessageBubble(message = message, isFromMe = isFromMe)
+                    val senderName = if (isFromMe) "You" else (recipientDisplayName ?: "Node-${message.senderId.toHex().take(6)}")
+                    MessageBubble(
+                        message = message,
+                        isFromMe = isFromMe,
+                        senderName = senderName,
+                        onPlayAudio = { viewModel.playVoiceMessage(message.content) }
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
@@ -600,7 +609,9 @@ fun WaveformVisualizer(rms: Int, isRecording: Boolean) {
 @Composable
 fun MessageBubble(
     message: Message,
-    isFromMe: Boolean
+    isFromMe: Boolean,
+    senderName: String = "",
+    onPlayAudio: (() -> Unit)? = null
 ) {
     val bubbleColor = if (isFromMe) AstraCyan.copy(alpha = 0.2f) else AstraSurfaceVariant
     val alignment = if (isFromMe) Alignment.End else Alignment.Start
@@ -609,6 +620,15 @@ fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = alignment
     ) {
+        if (!isFromMe && senderName.isNotBlank()) {
+            Text(
+                text = senderName,
+                color = AstraCyan,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
+            )
+        }
         Box(
             modifier = Modifier
                 .clip(
@@ -632,8 +652,52 @@ fun MessageBubble(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
+                // Voice Playback Waveform Bar
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                ) {
+                    IconButton(
+                        onClick = { onPlayAudio?.invoke() },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isFromMe) AstraCyan else AstraEmerald)
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "Play Speech",
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val bars = listOf(8, 14, 18, 12, 22, 16, 10, 20, 14, 8, 16, 12)
+                            bars.forEach { h ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(h.dp)
+                                        .clip(RoundedCornerShape(1.dp))
+                                        .background(if (isFromMe) AstraCyan else AstraEmerald)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Voice Message",
+                            color = AstraTextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+
                 Text(
-                    text = message.content,
+                    text = "\"${message.content}\"",
                     color = AstraTextPrimary,
                     fontSize = 15.sp
                 )

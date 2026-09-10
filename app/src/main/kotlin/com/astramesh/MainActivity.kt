@@ -56,6 +56,14 @@ import com.astramesh.ui.theme.AstraEmerald
 import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraSurfaceVariant
 import com.astramesh.ui.theme.AstraTheme
+import androidx.compose.material.icons.filled.Emergency
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Radio
+import com.astramesh.domain.repository.PeerRepository
+import com.astramesh.domain.usecase.EmergencyBroadcastUseCase
+import com.astramesh.ui.screens.ContactsScreen
+import com.astramesh.ui.screens.EmergencyScreen
+import com.astramesh.ui.screens.HomeScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -70,7 +78,9 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var messageRepository: MessageRepository
     @Inject lateinit var identityRepository: IdentityRepository
     @Inject lateinit var meshRepository: MeshRepository
+    @Inject lateinit var peerRepository: PeerRepository
     @Inject lateinit var sendMessageUseCase: SendMessageUseCase
+    @Inject lateinit var emergencyBroadcastUseCase: EmergencyBroadcastUseCase
     @Inject lateinit var discoverPeersUseCase: DiscoverPeersUseCase
     @Inject lateinit var verifyPeerTrustUseCase: VerifyPeerTrustUseCase
     @Inject lateinit var voiceEngineManager: com.astramesh.services.VoiceEngineManager
@@ -105,7 +115,9 @@ class MainActivity : ComponentActivity() {
                     messageRepository = messageRepository,
                     identityRepository = identityRepository,
                     meshRepository = meshRepository,
+                    peerRepository = peerRepository,
                     sendMessageUseCase = sendMessageUseCase,
+                    emergencyBroadcastUseCase = emergencyBroadcastUseCase,
                     discoverPeersUseCase = discoverPeersUseCase,
                     verifyPeerTrustUseCase = verifyPeerTrustUseCase,
                     voiceEngineManager = voiceEngineManager
@@ -130,7 +142,9 @@ fun MainAppContent(
     messageRepository: MessageRepository,
     identityRepository: IdentityRepository,
     meshRepository: MeshRepository,
+    peerRepository: PeerRepository,
     sendMessageUseCase: SendMessageUseCase,
+    emergencyBroadcastUseCase: EmergencyBroadcastUseCase,
     discoverPeersUseCase: DiscoverPeersUseCase,
     verifyPeerTrustUseCase: VerifyPeerTrustUseCase,
     voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
@@ -155,7 +169,9 @@ fun MainAppContent(
         messageRepository = messageRepository,
         identityRepository = identityRepository,
         meshRepository = meshRepository,
+        peerRepository = peerRepository,
         sendMessageUseCase = sendMessageUseCase,
+        emergencyBroadcastUseCase = emergencyBroadcastUseCase,
         discoverPeersUseCase = discoverPeersUseCase,
         verifyPeerTrustUseCase = verifyPeerTrustUseCase,
         voiceEngineManager = voiceEngineManager
@@ -170,7 +186,9 @@ fun MainAppScaffold(
     messageRepository: MessageRepository,
     identityRepository: IdentityRepository,
     meshRepository: MeshRepository,
+    peerRepository: PeerRepository,
     sendMessageUseCase: SendMessageUseCase,
+    emergencyBroadcastUseCase: EmergencyBroadcastUseCase,
     discoverPeersUseCase: DiscoverPeersUseCase,
     verifyPeerTrustUseCase: VerifyPeerTrustUseCase,
     voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
@@ -187,13 +205,13 @@ fun MainAppScaffold(
                     containerColor = AstraSurface
                 ) {
                     NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chats") },
-                        label = { Text("Chats") },
-                        selected = currentRoute == Screen.ChatList.route,
+                        icon = { Icon(Icons.Default.Radio, contentDescription = "Walkie-Talkie") },
+                        label = { Text("PTT") },
+                        selected = currentRoute == Screen.Home.route,
                         onClick = {
-                            if (currentRoute != Screen.ChatList.route) {
-                                navController.navigate(Screen.ChatList.route) {
-                                    popUpTo(Screen.ChatList.route) { inclusive = true }
+                            if (currentRoute != Screen.Home.route) {
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Home.route) { inclusive = true }
                                 }
                             }
                         },
@@ -207,17 +225,53 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.NearMe, contentDescription = "Nearby") },
-                        label = { Text("Radar") },
-                        selected = currentRoute == Screen.NearbyRadar.route,
+                        icon = { Icon(Icons.Default.People, contentDescription = "Contacts") },
+                        label = { Text("Contacts") },
+                        selected = currentRoute == Screen.Contacts.route,
                         onClick = {
-                            if (currentRoute != Screen.NearbyRadar.route) {
-                                navController.navigate(Screen.NearbyRadar.route)
+                            if (currentRoute != Screen.Contacts.route) {
+                                navController.navigate(Screen.Contacts.route)
                             }
                         },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = AstraCyan,
                             selectedTextColor = AstraCyan,
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = AstraSurfaceVariant
+                        )
+                    )
+
+                    NavigationBarItem(
+                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chats") },
+                        label = { Text("Chats") },
+                        selected = currentRoute == Screen.ChatList.route,
+                        onClick = {
+                            if (currentRoute != Screen.ChatList.route) {
+                                navController.navigate(Screen.ChatList.route)
+                            }
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = AstraCyan,
+                            selectedTextColor = AstraCyan,
+                            unselectedIconColor = Color.Gray,
+                            unselectedTextColor = Color.Gray,
+                            indicatorColor = AstraSurfaceVariant
+                        )
+                    )
+
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Emergency, contentDescription = "SOS") },
+                        label = { Text("SOS") },
+                        selected = currentRoute == Screen.Emergency.route,
+                        onClick = {
+                            if (currentRoute != Screen.Emergency.route) {
+                                navController.navigate(Screen.Emergency.route)
+                            }
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = com.astramesh.ui.theme.AstraCrimson,
+                            selectedTextColor = com.astramesh.ui.theme.AstraCrimson,
                             unselectedIconColor = Color.Gray,
                             unselectedTextColor = Color.Gray,
                             indicatorColor = AstraSurfaceVariant
@@ -252,10 +306,48 @@ fun MainAppScaffold(
         ) {
             NavHost(
                 navController = navController,
-                startDestination = Screen.ChatList.route
+                startDestination = Screen.Home.route
             ) {
+                composable(Screen.Home.route) {
+                    HomeScreen(
+                        localNodeId = localNodeId,
+                        peerRepository = peerRepository,
+                        messageRepository = messageRepository,
+                        chatRepository = chatRepository,
+                        identityRepository = identityRepository,
+                        sendMessageUseCase = sendMessageUseCase,
+                        meshRepository = meshRepository,
+                        voiceEngineManager = voiceEngineManager,
+                        onNavigateToContacts = { navController.navigate(Screen.Contacts.route) },
+                        onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
+                        onOpenConversation = { chatId, recipientId ->
+                            navController.navigate(Screen.Conversation.createRoute(chatId, recipientId))
+                        }
+                    )
+                }
+
+                composable(Screen.Contacts.route) {
+                    ContactsScreen(
+                        peerRepository = peerRepository,
+                        onOpenConversation = { chatId, recipientId ->
+                            navController.navigate(Screen.Conversation.createRoute(chatId, recipientId))
+                        }
+                    )
+                }
+
+                composable(Screen.Emergency.route) {
+                    EmergencyScreen(
+                        localNodeId = localNodeId,
+                        emergencyBroadcastUseCase = emergencyBroadcastUseCase,
+                        messageRepository = messageRepository,
+                        meshRepository = meshRepository,
+                        voiceEngineManager = voiceEngineManager,
+                        onBackClicked = { navController.popBackStack() }
+                    )
+                }
+
                 composable(Screen.ChatList.route) {
-                    val viewModel = remember { ChatListViewModel(chatRepository) }
+                    val viewModel = remember { ChatListViewModel(chatRepository, peerRepository) }
                     ChatListScreen(
                         viewModel = viewModel,
                         onChatClicked = { chat ->
@@ -280,6 +372,8 @@ fun MainAppScaffold(
                             recipientId = recipientNodeId,
                             messageRepository = messageRepository,
                             sendMessageUseCase = sendMessageUseCase,
+                            peerRepository = peerRepository,
+                            meshRepository = meshRepository,
                             voiceEngineManager = voiceEngineManager
                         )
                     }

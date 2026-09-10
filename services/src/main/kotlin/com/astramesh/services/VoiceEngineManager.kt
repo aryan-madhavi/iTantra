@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  */
 class VoiceEngineManager(
     private val context: Context
-) {
+) : com.astramesh.domain.repository.SpeechSynthesizer {
     companion object {
         const val SAMPLE_RATE = 8000 // 8kHz mono 16-bit PCM for BLE mesh voice
         const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
@@ -207,86 +207,202 @@ class VoiceEngineManager(
         return kotlin.math.sqrt((sum / sampleCount).toDouble()).toInt()
     }
 
+    @Volatile
+    var preferredLanguage: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
+
+    @Volatile
+    private var currentTranscript: String = ""
+    private var recognitionDeferred: kotlinx.coroutines.CompletableDeferred<String>? = null
+
     private var speechRecognizer: android.speech.SpeechRecognizer? = null
     private var textToSpeech: android.speech.tts.TextToSpeech? = null
     private var isTtsReady = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
-     * Start continuous Speech-to-Text (STT).
+     * Start Speech-to-Text (STT) for specified Language on main looper thread.
      */
-    fun startStt(onResult: (transcript: String) -> Unit) {
-        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) {
-            AstraLog.w("VoiceEngineManager", "STT not available on this device")
-            return
-        }
+    fun startStt(
+        language: com.astramesh.core.Language = preferredLanguage,
+        onRmsChanged: ((Int) -> Unit)? = null,
+        onResult: (transcript: String) -> Unit
+    ) {
+        currentTranscript = ""
+        recognitionDeferred = kotlinx.coroutines.CompletableDeferred()
+        mainHandler.post {
+            try {
+                if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) {
+                    AstraLog.w("VoiceEngineManager", "STT not available on this device")
+                    recognitionDeferred?.complete("")
+                    return@post
+                }
 
-        AstraLog.d("VoiceEngineManager", "STT_START speech recognition started")
-        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        }
+                speechRecognizer?.destroy()
+                AstraLog.d("VoiceEngineManager", "STT_START speech recognition started for language=${language.name} bcp47=${language.bcp47}")
+                val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, language.bcp47)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language.bcp47)
+                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(language.bcp47, "en-IN", "hi-IN", "en-US"))
+                    putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    putExtra(android.speech.RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                }
 
-        speechRecognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(object : android.speech.RecognitionListener {
-                override fun onReadyForSpeech(params: android.os.Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onError(error: Int) {
-                    AstraLog.e("VoiceEngineManager", "ERROR STT error code: $error")
+                speechRecognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(context).apply {
+                    setRecognitionListener(object : android.speech.RecognitionListener {
+                        override fun onReadyForSpeech(params: android.os.Bundle?) {
+                            AstraLog.d("VoiceEngineManager", "STT ready for speech")
+                        }
+                        override fun onBeginningOfSpeech() {
+                            AstraLog.d("VoiceEngineManager", "STT beginning of speech detected")
+                        }
+                        override fun onRmsChanged(rmsdB: Float) {
+                            val scaledRms = (rmsdB * 100).toInt().coerceAtLeast(0)
+                            onRmsChanged?.invoke(scaledRms)
+                        }
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+                        override fun onEndOfSpeech() {
+                            AstraLog.d("VoiceEngineManager", "STT end of speech")
+                        }
+                        override fun onError(error: Int) {
+                            AstraLog.w("VoiceEngineManager", "STT error code: $error (currentTranscript='$currentTranscript')")
+                            recognitionDeferred?.complete(currentTranscript)
+                        }
+                        override fun onResults(results: android.os.Bundle?) {
+                            val matches = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                            val text = matches?.firstOrNull()?.trim() ?: ""
+                            AstraLog.d("VoiceEngineManager", "STT_RESULT final result='$text'")
+                            if (text.isNotBlank()) {
+                                currentTranscript = text
+                                onResult(text)
+                            }
+                            recognitionDeferred?.complete(currentTranscript)
+                        }
+                        override fun onPartialResults(partialResults: android.os.Bundle?) {
+                            val matches = partialResults?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                            val text = matches?.firstOrNull()?.trim() ?: ""
+                            if (text.isNotBlank()) {
+                                AstraLog.d("VoiceEngineManager", "STT_RESULT partial='$text'")
+                                currentTranscript = text
+                                onResult(text)
+                            }
+                        }
+                        override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+                    })
+                    startListening(intent)
                 }
-                override fun onResults(results: android.os.Bundle?) {
-                    val matches = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull() ?: ""
-                    AstraLog.d("VoiceEngineManager", "STT_RESULT result='$text'")
-                    if (text.isNotBlank()) {
-                        onResult(text)
-                    }
-                }
-                override fun onPartialResults(partialResults: android.os.Bundle?) {
-                    val matches = partialResults?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull() ?: ""
-                    if (text.isNotBlank()) {
-                        AstraLog.d("VoiceEngineManager", "STT_RESULT partial='$text'")
-                    }
-                }
-                override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
-            })
-            startListening(intent)
+            } catch (e: Exception) {
+                AstraLog.e("VoiceEngineManager", "Error initializing SpeechRecognizer", e)
+                recognitionDeferred?.complete("")
+            }
         }
+    }
+
+    /**
+     * Stop STT and asynchronously await final recognized result with a small timeout window.
+     */
+    suspend fun stopSttAndAwaitResult(timeoutMs: Long = 700L): String {
+        mainHandler.post {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                AstraLog.w("VoiceEngineManager", "Error stopping SpeechRecognizer", e)
+                recognitionDeferred?.complete(currentTranscript)
+            }
+        }
+        val deferred = recognitionDeferred
+        if (deferred != null) {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                    deferred.await()
+                }
+            } catch (e: Exception) {
+                AstraLog.w("VoiceEngineManager", "Timeout awaiting STT result")
+            }
+        }
+        return currentTranscript.trim()
     }
 
     fun stopStt() {
-        speechRecognizer?.stopListening()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        mainHandler.post {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                AstraLog.w("VoiceEngineManager", "Error stopping SpeechRecognizer", e)
+            }
+        }
+        recognitionDeferred?.complete(currentTranscript)
     }
 
     /**
-     * Synthesize and speak text via Text-to-Speech (TTS).
+     * Synthesize and speak text via Text-to-Speech (TTS) for specified language.
+     * Supports emergency priority with AudioFocus and Vibration.
      */
-    fun speakText(text: String, onDone: (() -> Unit)? = null) {
-        if (text.isBlank()) return
-        AstraLog.d("VoiceEngineManager", "TTS_START speaking text='$text'")
+    fun speakText(
+        text: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.ENGLISH,
+        isEmergency: Boolean = false,
+        onDone: (() -> Unit)? = null
+    ) {
+        val cleanText = text
+            .replace(Regex("^\\[Voice Note[^\\]]*\\]:?\\s*"), "")
+            .replace(Regex("^\\[ALERT[^\\]]*\\]:?\\s*"), "")
+            .replace(Regex("^\\[SOS[^\\]]*\\]:?\\s*"), "")
+            .trim()
+        if (cleanText.isBlank()) return
+        AstraLog.d("VoiceEngineManager", "TTS_START speaking text='$cleanText' lang=${language.name} isEmergency=$isEmergency")
+
+        if (isEmergency) {
+            triggerEmergencyVibration()
+        }
+
+        val targetLocale = java.util.Locale.forLanguageTag(language.bcp47)
 
         if (textToSpeech == null) {
             textToSpeech = android.speech.tts.TextToSpeech(context) { status ->
                 if (status == android.speech.tts.TextToSpeech.SUCCESS) {
                     isTtsReady = true
-                    textToSpeech?.language = java.util.Locale.getDefault()
-                    performSpeak(text, onDone)
+                    textToSpeech?.language = targetLocale
+                    performSpeak(cleanText, targetLocale, isEmergency, onDone)
                 } else {
                     AstraLog.e("VoiceEngineManager", "ERROR TTS failed to initialize status=$status")
                 }
             }
         } else if (isTtsReady) {
-            performSpeak(text, onDone)
+            textToSpeech?.language = targetLocale
+            performSpeak(cleanText, targetLocale, isEmergency, onDone)
         }
     }
 
-    private fun performSpeak(text: String, onDone: (() -> Unit)?) {
+    private fun triggerEmergencyVibration() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                vibratorManager?.defaultVibrator?.vibrate(
+                    android.os.VibrationEffect.createWaveform(longArrayOf(0, 400, 150, 400, 150, 400), -1)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 400, 150, 400, 150, 400), -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(longArrayOf(0, 400, 150, 400, 150, 400), -1)
+                }
+            }
+        } catch (e: Exception) {
+            AstraLog.w("VoiceEngineManager", "Vibration failed: ${e.message}")
+        }
+    }
+
+    private fun performSpeak(
+        text: String,
+        locale: java.util.Locale,
+        isEmergency: Boolean,
+        onDone: (() -> Unit)?
+    ) {
         val utteranceId = java.util.UUID.randomUUID().toString()
         textToSpeech?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onStart(id: String?) {}
@@ -298,7 +414,30 @@ class VoiceEngineManager(
                 AstraLog.e("VoiceEngineManager", "ERROR TTS failed on utteranceId=$id")
             }
         })
-        textToSpeech?.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+
+        val queueMode = if (isEmergency) {
+            android.speech.tts.TextToSpeech.QUEUE_FLUSH
+        } else {
+            android.speech.tts.TextToSpeech.QUEUE_ADD
+        }
+
+        val params = android.os.Bundle().apply {
+            if (isEmergency) {
+                putInt(android.speech.tts.TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
+                putFloat(android.speech.tts.TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+            }
+        }
+
+        textToSpeech?.speak(text, queueMode, params, utteranceId)
+    }
+
+    override suspend fun synthesizeAndPlay(
+        text: String,
+        language: com.astramesh.core.Language,
+        isEmergency: Boolean,
+        onDone: (() -> Unit)?
+    ) {
+        speakText(text, language, isEmergency, onDone)
     }
 
     fun shutdown() {

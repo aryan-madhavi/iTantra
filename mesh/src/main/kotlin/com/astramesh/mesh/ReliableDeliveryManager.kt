@@ -37,6 +37,19 @@ class ReliableDeliveryManager(
         return pendingAcks.remove(packetId) != null
     }
 
+    fun acknowledgeSequence(seqNo: Long, fromNodeId: NodeId): Boolean {
+        val iterator = pendingAcks.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val unack = entry.value
+            if (unack.packet.sequenceNumber == seqNo && (unack.packet.destination == fromNodeId || unack.targetNodeId == fromNodeId)) {
+                iterator.remove()
+                return true
+            }
+        }
+        return false
+    }
+
     fun getPacketsForRetry(now: Long = System.currentTimeMillis()): List<AstraPacket> {
         val toRetry = mutableListOf<AstraPacket>()
         val iterator = pendingAcks.entries.iterator()

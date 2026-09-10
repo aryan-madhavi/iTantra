@@ -68,4 +68,5 @@ interface MeshRepository {
     suspend fun stopMesh(): AstraResult<Unit>
     suspend fun sendPacket(recipientId: NodeId, payload: ByteArray, priority: com.astramesh.domain.model.MessagePriority): AstraResult<Unit>
     suspend fun broadcastEmergency(content: String): AstraResult<Unit>
+    fun setPreferredLanguage(language: com.astramesh.core.Language)
 }

@@ -71,7 +71,8 @@ object MeshModule {
         peerRepository: com.astramesh.domain.repository.PeerRepository,
         messageRepository: com.astramesh.domain.repository.MessageRepository,
         chatRepository: com.astramesh.domain.repository.ChatRepository,
-        routingTable: RoutingTable
+        routingTable: RoutingTable,
+        voiceEngineManager: com.astramesh.services.VoiceEngineManager
     ): MeshEngine {
         val nodeId = runBlocking { identityRepository.getRotatingNodeId() }
         return MeshEngine(
@@ -84,7 +85,8 @@ object MeshModule {
             routingTable = routingTable,
             peerRepository = peerRepository,
             messageRepository = messageRepository,
-            chatRepository = chatRepository
+            chatRepository = chatRepository,
+            speechSynthesizer = voiceEngineManager
         )
     }
 

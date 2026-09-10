@@ -39,8 +39,26 @@ class ConversationViewModel(
     val recipientId: NodeId,
     private val messageRepository: MessageRepository,
     private val sendMessageUseCase: SendMessageUseCase,
+    private val peerRepository: com.astramesh.domain.repository.PeerRepository? = null,
+    private val meshRepository: com.astramesh.domain.repository.MeshRepository? = null,
     private val voiceEngineManager: VoiceEngineManager? = null
 ) : ViewModel() {
+
+    val recipientDisplayName = MutableStateFlow<String?>(null)
+
+    init {
+        viewModelScope.launch {
+            peerRepository?.observeNearbyPeers()?.collect { peers ->
+                val peer = peers.find { it.nodeId == recipientId }
+                val name = peer?.displayName
+                if (name != null && !name.startsWith("Node-")) {
+                    recipientDisplayName.value = name
+                } else if (name != null && recipientDisplayName.value == null) {
+                    recipientDisplayName.value = name
+                }
+            }
+        }
+    }
 
     val messages: StateFlow<List<Message>> = messageRepository.observeMessages(chatId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -79,6 +97,16 @@ class ConversationViewModel(
     private var pttSequence = 0
     private var timerJob: Job? = null
 
+    private val _speechLanguage = MutableStateFlow(voiceEngineManager?.preferredLanguage ?: com.astramesh.core.Language.HINDI)
+    val speechLanguage: StateFlow<com.astramesh.core.Language> = _speechLanguage.asStateFlow()
+
+    fun setSpeechLanguage(language: com.astramesh.core.Language) {
+        _speechLanguage.value = language
+        voiceEngineManager?.preferredLanguage = language
+        meshRepository?.setPreferredLanguage(language)
+        AstraLog.d("ConversationViewModel", "SPEECH_LANG set to ${language.name}")
+    }
+
     fun onInputTextChanged(newText: String) {
         _inputText.value = newText
     }
@@ -94,28 +122,37 @@ class ConversationViewModel(
 
         _inputText.value = ""
         viewModelScope.launch {
-            AstraLog.d("ConversationViewModel", "SEND text length=${text.length} recipient=$recipientId")
-            sendMessageUseCase(chatId, recipientId, text)
+            sendMessageUseCase(
+                chatId = chatId,
+                recipientId = recipientId,
+                content = text,
+                priority = MessagePriority.DIRECT_MESSAGE
+            )
         }
     }
 
     /**
-     * Push-To-Talk / Walkie-Talkie: Hold to Talk
+     * Push-To-Talk / Walkie-Talkie: Hold to Record
      */
-    fun startPtt() {
+    fun startPtt(mode: VoiceMode = VoiceMode.PUSH_TO_TALK) {
         if (_isRecordingPtt.value) return
         _isRecordingPtt.value = true
+        _currentVoiceMode.value = mode
         _recordingDurationSec.value = 0
-        recordedAudioBuffer.reset()
-        pttSequence = 0
+        _liveRms.value = 0
+        _liveTranscript.value = ""
+        synchronized(recordedAudioBuffer) {
+            recordedAudioBuffer.reset()
+        }
 
-        val modeTag = when (_currentVoiceMode.value) {
+        val modeTag = when (mode) {
             VoiceMode.WALKIE_TALKIE -> "WALKIE"
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
-        AstraLog.d("ConversationViewModel", "$modeTag START recording initiated")
+        AstraLog.d("ConversationViewModel", "$modeTag START recording initiated lang=${_speechLanguage.value.name}")
 
+        // Start live duration counter
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (isActive && _isRecordingPtt.value) {
@@ -124,10 +161,20 @@ class ConversationViewModel(
             }
         }
 
+        // Start audio capture & Live STT
         voiceEngineManager?.startRecording(viewModelScope) { chunk, rms ->
-            _liveRms.value = rms
+            if (_liveRms.value == 0) _liveRms.value = rms
             synchronized(recordedAudioBuffer) {
                 recordedAudioBuffer.write(chunk)
+            }
+        }
+
+        voiceEngineManager?.startStt(
+            language = _speechLanguage.value,
+            onRmsChanged = { rms -> _liveRms.value = rms }
+        ) { transcript ->
+            if (transcript.isNotBlank()) {
+                _liveTranscript.value = transcript
             }
         }
     }
@@ -139,34 +186,48 @@ class ConversationViewModel(
         if (!_isRecordingPtt.value) return
         _isRecordingPtt.value = false
         _liveRms.value = 0
+        val duration = _recordingDurationSec.value
         timerJob?.cancel()
         timerJob = null
 
-        voiceEngineManager?.stopRecording()
         val mode = _currentVoiceMode.value
         val modeTag = when (mode) {
             VoiceMode.WALKIE_TALKIE -> "WALKIE"
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
-        AstraLog.d("ConversationViewModel", "$modeTag STOP recording ended duration=${_recordingDurationSec.value}s")
+        AstraLog.d("ConversationViewModel", "$modeTag STOP recording ended duration=${duration}s")
 
-        val audioBytes = synchronized(recordedAudioBuffer) {
-            recordedAudioBuffer.toByteArray()
-        }
+        viewModelScope.launch {
+            voiceEngineManager?.stopRecording()
+            val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 700L) ?: ""
 
-        if (audioBytes.isNotEmpty()) {
-            val priority = if (mode == VoiceMode.EMERGENCY) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
-            val payload = VoicePayload(
-                mode = mode,
-                sequence = pttSequence++,
-                isFinal = true,
-                transcript = "",
-                audioData = audioBytes
-            )
-            viewModelScope.launch {
-                AstraLog.d("ConversationViewModel", "SEND $modeTag audioBytes=${audioBytes.size} destination=$recipientId priority=$priority")
-                sendMessageUseCase.sendVoiceMessage(chatId, recipientId, payload, priority)
+            val audioBytes = synchronized(recordedAudioBuffer) {
+                recordedAudioBuffer.toByteArray()
+            }
+
+            val transcript = _liveTranscript.value.trim()
+            val textToSend = if (recognizedText.isNotBlank()) {
+                recognizedText
+            } else if (transcript.isNotBlank()) {
+                transcript
+            } else if (duration > 0 || audioBytes.isNotEmpty()) {
+                // Localized fallback if user spoke but STT engine did not output text
+                if (mode == VoiceMode.EMERGENCY) _speechLanguage.value.getDefaultEmergencyText() else _speechLanguage.value.getDefaultVoiceNoteText()
+            } else {
+                ""
+            }
+
+            if (textToSend.isNotBlank()) {
+                val isEmergency = (mode == VoiceMode.EMERGENCY)
+                AstraLog.d("ConversationViewModel", "SEND $modeTag IthantraMessage text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
+                sendMessageUseCase.sendIthantraVoiceMessage(
+                    chatId = chatId,
+                    recipientId = recipientId,
+                    text = textToSend,
+                    language = _speechLanguage.value,
+                    isEmergency = isEmergency
+                )
             }
         }
     }
@@ -174,17 +235,17 @@ class ConversationViewModel(
     /**
      * Trigger Emergency Broadcast SOS Voice/Alert
      */
-    fun sendEmergencySos(alertText: String = "EMERGENCY SOS BROADCAST") {
-        AstraLog.d("ConversationViewModel", "SOS Broadcasting emergency alert to mesh")
+    fun sendEmergencySos(alertText: String? = null) {
+        val finalAlert = alertText ?: _speechLanguage.value.getDefaultEmergencyText()
+        AstraLog.d("ConversationViewModel", "SOS Broadcasting emergency alert to mesh: text='$finalAlert'")
         viewModelScope.launch {
-            val payload = VoicePayload(
-                mode = VoiceMode.EMERGENCY,
-                sequence = pttSequence++,
-                isFinal = true,
-                transcript = alertText,
-                audioData = ByteArray(0)
+            sendMessageUseCase.sendIthantraVoiceMessage(
+                chatId = chatId,
+                recipientId = recipientId,
+                text = finalAlert,
+                language = _speechLanguage.value,
+                isEmergency = true
             )
-            sendMessageUseCase.sendVoiceMessage(chatId, recipientId, payload, MessagePriority.EMERGENCY)
         }
     }
 
@@ -198,22 +259,21 @@ class ConversationViewModel(
 
         if (nextState) {
             _continuousState.value = ContinuousState.LISTENING
-            voiceEngineManager?.startStt { transcript ->
+            voiceEngineManager?.startStt(_speechLanguage.value) { transcript ->
                 if (transcript.isNotBlank()) {
                     _liveTranscript.value = transcript
                     _continuousState.value = ContinuousState.TRANSCRIBING
                     AstraLog.d("ConversationViewModel", "CONTINUOUS Recognized transcript='$transcript'")
 
-                    val payload = VoicePayload(
-                        mode = VoiceMode.CONTINUOUS,
-                        sequence = pttSequence++,
-                        isFinal = true,
-                        transcript = transcript,
-                        audioData = ByteArray(0)
-                    )
                     viewModelScope.launch {
                         _continuousState.value = ContinuousState.SPEAKING
-                        sendMessageUseCase.sendVoiceMessage(chatId, recipientId, payload)
+                        sendMessageUseCase.sendIthantraVoiceMessage(
+                            chatId = chatId,
+                            recipientId = recipientId,
+                            text = transcript,
+                            language = _speechLanguage.value,
+                            isEmergency = false
+                        )
                         delay(1500)
                         if (_isContinuousModeActive.value) {
                             _continuousState.value = ContinuousState.LISTENING
@@ -225,6 +285,16 @@ class ConversationViewModel(
             _continuousState.value = ContinuousState.IDLE
             _liveTranscript.value = ""
             voiceEngineManager?.stopStt()
+        }
+    }
+
+    /**
+     * Synthesizes and plays a voice message transcript aloud
+     */
+    fun playVoiceMessage(text: String, language: com.astramesh.core.Language = _speechLanguage.value) {
+        val cleanText = text.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
+        viewModelScope.launch {
+            voiceEngineManager?.speakText(cleanText, language)
         }
     }
 

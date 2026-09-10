@@ -124,6 +124,71 @@ class SendMessageUseCase(
 
         return AstraResult.Success(message)
     }
+
+    suspend fun sendIthantraVoiceMessage(
+        chatId: ChatId,
+        recipientId: NodeId,
+        text: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI,
+        isEmergency: Boolean = false,
+        gpsLatitude: Float = 0.0f,
+        gpsLongitude: Float = 0.0f
+    ): AstraResult<Message> {
+        val senderId = identityRepository.getRotatingNodeId()
+        val detectedEmergency = isEmergency || com.astramesh.core.EmergencyClassifier.isEmergency(text, language)
+        val msgType = if (detectedEmergency) com.astramesh.core.MessageType.ALERT else com.astramesh.core.MessageType.NORMAL
+        val priority = if (detectedEmergency) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
+
+        val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
+        val ithantraMessage = com.astramesh.core.IthantraMessage(
+            senderId = senderId,
+            messageType = msgType,
+            language = language,
+            sequenceNumber = seqNo,
+            timestamp = System.currentTimeMillis(),
+            text = text,
+            hopTtl = 7,
+            gpsLatitude = gpsLatitude,
+            gpsLongitude = gpsLongitude
+        )
+
+        val snippet = "[Voice Note]: $text"
+        val message = Message(
+            id = MessageId(UUID.randomUUID().toString()),
+            chatId = chatId,
+            senderId = senderId,
+            recipientId = recipientId,
+            timestamp = ithantraMessage.timestamp,
+            content = snippet,
+            contentType = if (detectedEmergency) MessageContentType.SYSTEM_ALERT else MessageContentType.AUDIO_NOTE,
+            status = MessageStatus.QUEUED,
+            priority = priority
+        )
+
+        val insertResult = messageRepository.insertMessage(message)
+        if (insertResult.isFailure) return AstraResult.Failure((insertResult as AstraResult.Failure).error)
+
+        val existingChat = chatRepository.getChatById(chatId) ?: Chat(
+            id = chatId,
+            title = recipientId.toHex(),
+            type = if (recipientId.isBroadcast) ChatType.BROADCAST else ChatType.DIRECT,
+            participantIds = listOf(senderId, recipientId)
+        )
+        chatRepository.insertOrUpdateChat(
+            existingChat.copy(
+                lastMessage = message,
+                updatedAt = message.timestamp
+            )
+        )
+
+        val payloadBytes = ithantraMessage.toBinary()
+        val sendResult = meshRepository.sendPacket(recipientId, payloadBytes, priority)
+        if (sendResult.isSuccess) {
+            messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
+        }
+
+        return AstraResult.Success(message)
+    }
 }
 
 class EmergencyBroadcastUseCase(
@@ -132,9 +197,23 @@ class EmergencyBroadcastUseCase(
     private val chatRepository: ChatRepository,
     private val identityRepository: IdentityRepository
 ) {
-    suspend operator fun invoke(alertMessage: String): AstraResult<Unit> {
+    suspend operator fun invoke(
+        alertMessage: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
+    ): AstraResult<Unit> {
         val senderId = identityRepository.getRotatingNodeId()
         val emergencyChatId = ChatId("chat_emergency_broadcast")
+        val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
+        val ithantra = com.astramesh.core.IthantraMessage(
+            senderId = senderId,
+            messageType = com.astramesh.core.MessageType.SOS,
+            language = language,
+            sequenceNumber = seqNo,
+            timestamp = System.currentTimeMillis(),
+            text = alertMessage,
+            hopTtl = 15
+        )
+
         val message = Message(
             id = MessageId(UUID.randomUUID().toString()),
             chatId = emergencyChatId,
@@ -159,7 +238,7 @@ class EmergencyBroadcastUseCase(
         )
         chatRepository.insertOrUpdateChat(chat)
 
-        return meshRepository.broadcastEmergency(alertMessage)
+        return meshRepository.sendPacket(NodeId.BROADCAST, ithantra.toBinary(), MessagePriority.EMERGENCY)
     }
 }
 

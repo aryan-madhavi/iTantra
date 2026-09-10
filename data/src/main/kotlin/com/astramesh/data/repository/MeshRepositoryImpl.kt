@@ -32,4 +32,8 @@ class MeshRepositoryImpl(
         val result = meshEngine.sendPacket(NodeId.BROADCAST, payload, MessagePriority.EMERGENCY)
         return result.map { }
     }
+
+    override fun setPreferredLanguage(language: com.astramesh.core.Language) {
+        meshEngine.preferredLanguage = language
+    }
 }

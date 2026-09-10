@@ -30,6 +30,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
 
@@ -47,6 +51,7 @@ class MeshEngine(
     private val peerRepository: PeerRepository? = null,
     private val messageRepository: com.astramesh.domain.repository.MessageRepository? = null,
     private val chatRepository: com.astramesh.domain.repository.ChatRepository? = null,
+    private val speechSynthesizer: com.astramesh.domain.repository.SpeechSynthesizer? = null,
     private val deduplicationCache: DuplicateDetectionCache = DuplicateDetectionCache(),
     private val priorityScheduler: PacketPriorityScheduler = PacketPriorityScheduler(),
     private val storeAndForwardQueue: StoreAndForwardQueue = StoreAndForwardQueue(),
@@ -64,6 +69,9 @@ class MeshEngine(
     private val _meshStatus = MutableStateFlow(MeshStatus())
     val meshStatus: StateFlow<MeshStatus> = _meshStatus.asStateFlow()
 
+    @Volatile
+    var preferredLanguage: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
+
     private val sentPacketsCounter = AtomicLong(0)
     private val relayedPacketsCounter = AtomicLong(0)
     private val receivedPacketsCounter = AtomicLong(0)
@@ -71,8 +79,17 @@ class MeshEngine(
 
     private var nextSequenceNumber: Long = 0L
 
+    @Volatile
+    private var isStarted = false
+
+    @Synchronized
     fun start(): AstraResult<Unit> {
-        AstraLog.i("MeshEngine", "Starting AstraMesh Engine for node $localNodeId")
+        if (isStarted) {
+            AstraLog.d("MeshEngine", "MeshEngine is already running. Skipping duplicate start().")
+            return AstraResult.Success(Unit)
+        }
+        isStarted = true
+        AstraLog.i("MeshEngine", "[LIFECYCLE] Starting AstraMesh Engine for node $localNodeId")
 
         // 1. Start Peripheral GATT Server
         gattServerManager.startServer()
@@ -107,17 +124,37 @@ class MeshEngine(
             }
         }
 
+        // 6. Periodic reliability retry & pruning worker (bounded retries, no infinite loop)
+        scope.launch {
+            while (isActive && isStarted) {
+                delay(2000L)
+                try {
+                    val retries = reliableDeliveryManager.getPacketsForRetry()
+                    for (pkt in retries) {
+                        AstraLog.d("MeshEngine", "[RETRY] Retrying packet ${pkt.packetId} seq=${pkt.sequenceNumber} to ${pkt.destination}")
+                        sendPacketOverConnection(pkt, pkt.destination)
+                    }
+                    reassembler.pruneStale(10_000L)
+                } catch (e: Exception) {
+                    AstraLog.e("MeshEngine", "Error in reliability retry worker", e)
+                }
+            }
+        }
+
         updateStatus(isAdvertising = true, isScanning = true)
         return AstraResult.Success(Unit)
     }
 
+    @Synchronized
     fun stop() {
-        AstraLog.i("MeshEngine", "Stopping AstraMesh Engine")
+        if (!isStarted) return
+        isStarted = false
+        AstraLog.i("MeshEngine", "[LIFECYCLE] Stopping AstraMesh Engine")
         advertiserManager.stopAdvertising()
         scannerManager.stopScanning()
         gattServerManager.stopServer()
         connectionPool.clear()
-        scope.cancel()
+        scope.coroutineContext.cancelChildren()
         updateStatus(isAdvertising = false, isScanning = false)
     }
 
@@ -128,13 +165,20 @@ class MeshEngine(
     ): AstraResult<PacketId> {
         val seq = nextSequenceNumber++
         val pid = PacketId.generate(localNodeId, seq, System.currentTimeMillis())
-        AstraLog.d("MeshEngine", "SEND destination=$destination pid=$pid priority=$priority payloadSize=${payload.size}")
+
+        val isAckOrControl = priority == MessagePriority.CONTROL ||
+            (com.astramesh.core.IthantraMessage.isIthantraMessage(payload) &&
+             try { com.astramesh.core.IthantraMessage.fromBinary(payload).messageType == com.astramesh.core.MessageType.ACK } catch (e: Exception) { false })
+
+        val requiresAck = !destination.isBroadcast && !isAckOrControl
+
+        AstraLog.d("MeshEngine", "[TX] destination=$destination pid=$pid seq=$seq priority=$priority requiresAck=$requiresAck payloadSize=${payload.size}")
 
         val packet = AstraPacket(
             type = if (destination.isBroadcast) AstraPacketType.DATA_BROADCAST else AstraPacketType.DATA_UNICAST,
             flags = AstraPacketFlags(
                 isEmergency = priority == MessagePriority.EMERGENCY,
-                requiresAck = !destination.isBroadcast,
+                requiresAck = requiresAck,
                 isEncrypted = true,
                 relayAllowed = true
             ),
@@ -237,53 +281,225 @@ class MeshEngine(
         val chatRepo = chatRepository ?: return
 
         scope.launch {
+            val isIthantra = com.astramesh.core.IthantraMessage.isIthantraMessage(packet.payload)
             val isVoice = com.astramesh.core.VoicePayload.isVoicePayload(packet.payload)
-            val (contentType, contentStr) = if (isVoice) {
-                val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
-                val snippet = if (voicePayload.transcript.isNotBlank()) {
-                    "[Voice Note]: ${voicePayload.transcript}"
-                } else {
-                    "[Voice Note ${voicePayload.mode.name}]"
+
+            if (isIthantra) {
+                val ithantra = try {
+                    com.astramesh.core.IthantraMessage.fromBinary(packet.payload)
+                } catch (e: Exception) {
+                    AstraLog.e("MeshEngine", "Failed to decode IthantraMessage", e)
+                    return@launch
                 }
-                Pair(com.astramesh.domain.model.MessageContentType.AUDIO_NOTE, snippet)
-            } else {
-                Pair(com.astramesh.domain.model.MessageContentType.TEXT, String(packet.payload, Charsets.UTF_8))
+
+                // -------------------------------------------------------------
+                // CASE 1: RECEIVED PACKET IS AN ACK (TERMINATE RELIABILITY CHAIN)
+                // -------------------------------------------------------------
+                if (ithantra.messageType == com.astramesh.core.MessageType.ACK) {
+                    AstraLog.d("MeshEngine", "[RX ACK] Received ACK for seq=${ithantra.sequenceNumber} from ${packet.source}")
+                    reliableDeliveryManager.acknowledgeSequence(ithantra.sequenceNumber, packet.source)
+
+                    // Find matching message in repository and mark as DELIVERED
+                    val directChatId = com.astramesh.core.ChatId("direct_${packet.source.value}")
+                    val messages = messageRepo.observeMessages(directChatId).first()
+                    val unconfirmed = messages.firstOrNull { it.senderId == localNodeId && it.status != com.astramesh.domain.model.MessageStatus.DELIVERED }
+                    if (unconfirmed != null) {
+                        messageRepo.updateMessageStatus(unconfirmed.id, com.astramesh.domain.model.MessageStatus.DELIVERED)
+                    }
+
+                    // DO NOT ACK AN ACK! DO NOT TRIGGER TTS! RETURN IMMEDIATELY!
+                    return@launch
+                }
+
+                // -------------------------------------------------------------
+                // CASE 2: RECEIVED PACKET IS A NORMAL / ALERT / SOS VOICE MESSAGE
+                // -------------------------------------------------------------
+                AstraLog.d("MeshEngine", "[RX] Received voice message seq=${ithantra.sequenceNumber} type=${ithantra.messageType} from ${packet.source}")
+
+                // 1. Send EXACTLY ONE ACK back to sender (requiresAck = false)
+                val listenerLang = preferredLanguage // Dynamic listener preference
+                val ackMsg = com.astramesh.core.IthantraMessage(
+                    senderId = localNodeId,
+                    messageType = com.astramesh.core.MessageType.ACK,
+                    language = listenerLang,
+                    sequenceNumber = ithantra.sequenceNumber,
+                    timestamp = System.currentTimeMillis(),
+                    text = "ACK"
+                )
+                AstraLog.d("MeshEngine", "[TX ACK] Sending ACK for seq=${ithantra.sequenceNumber} to ${packet.source}")
+                sendPacket(packet.source, ackMsg.toBinary(), com.astramesh.domain.model.MessagePriority.CONTROL)
+
+                // 2. Local Translation if listener language differs
+                val isEmergency = ithantra.messageType == com.astramesh.core.MessageType.ALERT ||
+                        ithantra.messageType == com.astramesh.core.MessageType.SOS ||
+                        com.astramesh.core.EmergencyClassifier.isEmergency(ithantra.text, ithantra.language)
+
+                val textToSpeak: String
+                val speechLanguage: com.astramesh.core.Language
+                val snippet: String
+
+                if (ithantra.language == listenerLang) {
+                    textToSpeak = ithantra.text
+                    speechLanguage = listenerLang
+                    snippet = "[Voice Note]: ${ithantra.text}"
+                } else {
+                    val translated = com.astramesh.core.OfflineTranslationEngine.translate(
+                        ithantra.text,
+                        ithantra.language,
+                        listenerLang
+                    )
+                    textToSpeak = translated
+                    speechLanguage = listenerLang
+                    snippet = "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
+                }
+
+                // 3. Persist voice note in DB
+                val chatId = if (packet.destination.isBroadcast) {
+                    com.astramesh.core.ChatId("chat_broadcast")
+                } else {
+                    com.astramesh.core.ChatId("direct_${packet.source.value}")
+                }
+
+                val message = com.astramesh.domain.model.Message(
+                    id = com.astramesh.core.MessageId(java.util.UUID.randomUUID().toString()),
+                    chatId = chatId,
+                    senderId = packet.source,
+                    recipientId = packet.destination,
+                    timestamp = ithantra.timestamp,
+                    content = snippet,
+                    contentType = if (isEmergency) com.astramesh.domain.model.MessageContentType.SYSTEM_ALERT else com.astramesh.domain.model.MessageContentType.AUDIO_NOTE,
+                    status = com.astramesh.domain.model.MessageStatus.DELIVERED,
+                    priority = if (isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                )
+                messageRepo.insertMessage(message)
+
+                // 4. Update Chat with contact title
+                val peer = peerRepository?.getPeerByNodeId(packet.source)
+                val customName = peer?.displayName?.takeIf { !it.startsWith("Node-") }
+                val chatTitle = customName ?: "Node-${packet.source.toHex().take(8)}"
+
+                val existingChat = chatRepo.getChatById(chatId) ?: com.astramesh.domain.model.Chat(
+                    id = chatId,
+                    title = chatTitle,
+                    type = if (packet.destination.isBroadcast) com.astramesh.domain.model.ChatType.BROADCAST else com.astramesh.domain.model.ChatType.DIRECT,
+                    participantIds = listOf(localNodeId, packet.source)
+                )
+                chatRepo.insertOrUpdateChat(
+                    existingChat.copy(
+                        title = if (customName != null) customName else existingChat.title,
+                        lastMessage = message,
+                        updatedAt = message.timestamp,
+                        unreadCount = existingChat.unreadCount + 1
+                    )
+                )
+
+                // 5. Synthesize speech on COMPLETE reassembled text
+                try {
+                    AstraLog.d("MeshEngine", "VOICE_PLAYBACK synthesizing speech text='$textToSpeak' lang=${speechLanguage.name} emergency=$isEmergency")
+                    speechSynthesizer?.synthesizeAndPlay(
+                        text = textToSpeak,
+                        language = speechLanguage,
+                        isEmergency = isEmergency
+                    )
+                } catch (e: Exception) {
+                    AstraLog.e("MeshEngine", "TTS playback failed", e)
+                }
+                return@launch
             }
 
-            val chatId = if (packet.destination.isBroadcast) {
-                com.astramesh.core.ChatId("chat_broadcast")
-            } else {
-                com.astramesh.core.ChatId("direct_${packet.source.value}")
+            if (isVoice) {
+                val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
+                val isEmergency = packet.flags.isEmergency || voicePayload.mode == com.astramesh.core.VoiceMode.EMERGENCY
+                val textToSpeak = voicePayload.transcript.takeIf { it.isNotBlank() }
+                val snippet = if (textToSpeak != null) "[Voice Note]: $textToSpeak" else "[Voice Note ${voicePayload.mode.name}]"
+
+                val chatId = if (packet.destination.isBroadcast) {
+                    com.astramesh.core.ChatId("chat_broadcast")
+                } else {
+                    com.astramesh.core.ChatId("direct_${packet.source.value}")
+                }
+
+                val message = com.astramesh.domain.model.Message(
+                    id = com.astramesh.core.MessageId(java.util.UUID.randomUUID().toString()),
+                    chatId = chatId,
+                    senderId = packet.source,
+                    recipientId = packet.destination,
+                    timestamp = System.currentTimeMillis(),
+                    content = snippet,
+                    contentType = if (isEmergency) com.astramesh.domain.model.MessageContentType.SYSTEM_ALERT else com.astramesh.domain.model.MessageContentType.AUDIO_NOTE,
+                    status = com.astramesh.domain.model.MessageStatus.DELIVERED,
+                    priority = if (isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                )
+                messageRepo.insertMessage(message)
+
+                val peer = peerRepository?.getPeerByNodeId(packet.source)
+                val customName = peer?.displayName?.takeIf { !it.startsWith("Node-") }
+                val chatTitle = customName ?: "Node-${packet.source.toHex().take(8)}"
+
+                val existingChat = chatRepo.getChatById(chatId) ?: com.astramesh.domain.model.Chat(
+                    id = chatId,
+                    title = chatTitle,
+                    type = if (packet.destination.isBroadcast) com.astramesh.domain.model.ChatType.BROADCAST else com.astramesh.domain.model.ChatType.DIRECT,
+                    participantIds = listOf(localNodeId, packet.source)
+                )
+                chatRepo.insertOrUpdateChat(
+                    existingChat.copy(
+                        title = if (customName != null) customName else existingChat.title,
+                        lastMessage = message,
+                        updatedAt = message.timestamp,
+                        unreadCount = existingChat.unreadCount + 1
+                    )
+                )
+
+                textToSpeak?.let { text ->
+                    try {
+                        val translated = if (preferredLanguage == com.astramesh.core.Language.HINDI) {
+                            text
+                        } else {
+                            com.astramesh.core.OfflineTranslationEngine.translate(text, com.astramesh.core.Language.HINDI, preferredLanguage)
+                        }
+                        speechSynthesizer?.synthesizeAndPlay(translated, preferredLanguage, isEmergency)
+                    } catch (e: Exception) {
+                        AstraLog.e("MeshEngine", "TTS playback failed", e)
+                    }
+                }
+                return@launch
             }
 
+            // Fallback standard text
+            val text = String(packet.payload, Charsets.UTF_8)
+            val chatId = if (packet.destination.isBroadcast) com.astramesh.core.ChatId("chat_broadcast") else com.astramesh.core.ChatId("direct_${packet.source.value}")
             val message = com.astramesh.domain.model.Message(
                 id = com.astramesh.core.MessageId(java.util.UUID.randomUUID().toString()),
                 chatId = chatId,
                 senderId = packet.source,
                 recipientId = packet.destination,
                 timestamp = System.currentTimeMillis(),
-                content = contentStr,
-                contentType = contentType,
+                content = text,
+                contentType = com.astramesh.domain.model.MessageContentType.TEXT,
                 status = com.astramesh.domain.model.MessageStatus.DELIVERED,
                 priority = if (packet.flags.isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
             )
-
             messageRepo.insertMessage(message)
+
+            val peer = peerRepository?.getPeerByNodeId(packet.source)
+            val customName = peer?.displayName?.takeIf { !it.startsWith("Node-") }
+            val chatTitle = customName ?: "Node-${packet.source.toHex().take(8)}"
 
             val existingChat = chatRepo.getChatById(chatId) ?: com.astramesh.domain.model.Chat(
                 id = chatId,
-                title = packet.source.toHex(),
+                title = chatTitle,
                 type = if (packet.destination.isBroadcast) com.astramesh.domain.model.ChatType.BROADCAST else com.astramesh.domain.model.ChatType.DIRECT,
                 participantIds = listOf(localNodeId, packet.source)
             )
             chatRepo.insertOrUpdateChat(
                 existingChat.copy(
+                    title = if (customName != null) customName else existingChat.title,
                     lastMessage = message,
                     updatedAt = message.timestamp,
                     unreadCount = existingChat.unreadCount + 1
                 )
             )
-            AstraLog.d("MeshEngine", "UI_UPDATE persisted incoming message=${message.id} from=${packet.source} isVoice=$isVoice")
         }
     }
 
@@ -300,17 +516,19 @@ class MeshEngine(
         )
 
         scope.launch {
+            val existing = peerRepository?.getPeerByNodeId(nodeId)
+            val displayName = existing?.displayName ?: "Node-${nodeId.toHex().take(8)}"
             peerRepository?.updatePeer(
                 Peer(
                     nodeId = nodeId,
                     deviceAddress = deviceAddress,
-                    displayName = "Node-${nodeId.toHex()}",
+                    displayName = displayName,
                     rssi = rssi,
                     linkQuality = 1.0f,
                     hopDistance = 1,
                     directState = DirectConnectionState.DISCONNECTED,
-                    trustLevel = PeerTrustLevel.UNVERIFIED,
-                    batteryLevel = 100,
+                    trustLevel = existing?.trustLevel ?: PeerTrustLevel.UNVERIFIED,
+                    batteryLevel = existing?.batteryLevel ?: 100,
                     lastSeenTimestamp = System.currentTimeMillis()
                 )
             )
