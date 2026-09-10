@@ -329,13 +329,6 @@ fun HomeScreen(
                                     }
 
                                     AstraLog.d("HomeScreen", "PTT_START initiated lang=${selectedLanguage.name}")
-                                    voiceEngineManager?.startRecording(scope) { chunk, rms ->
-                                        if (liveRms == 0) liveRms = rms
-                                        synchronized(recordedAudioBuffer) {
-                                            recordedAudioBuffer.write(chunk)
-                                        }
-                                    }
-
                                     voiceEngineManager?.startStt(
                                         language = selectedLanguage,
                                         onRmsChanged = { rms -> liveRms = rms }
@@ -355,18 +348,13 @@ fun HomeScreen(
                                     timerJob = null
 
                                     scope.launch {
-                                        voiceEngineManager?.stopRecording()
-                                        val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 700L) ?: ""
-
-                                        val audioBytes = synchronized(recordedAudioBuffer) {
-                                            recordedAudioBuffer.toByteArray()
-                                        }
+                                        val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
 
                                         val transcriptToSend = if (recognizedText.isNotBlank()) {
                                             recognizedText
                                         } else if (liveTranscript.isNotBlank()) {
                                             liveTranscript
-                                        } else if (duration > 0 || audioBytes.isNotEmpty()) {
+                                        } else if (duration > 0) {
                                             selectedLanguage.getDefaultVoiceNoteText()
                                         } else {
                                             ""

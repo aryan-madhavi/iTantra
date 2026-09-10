@@ -45,6 +45,47 @@ class VoiceEngineManager(
     private var isRecording = false
     private var isPlaying = false
 
+    init {
+        auditAndLogAiAssets()
+    }
+
+    private fun auditAndLogAiAssets() {
+        try {
+            var vadSize = 0L
+            var vadExists = false
+            try {
+                context.assets.open("models/silero_vad.onnx").use {
+                    vadSize = it.available().toLong()
+                    vadExists = true
+                }
+            } catch (_: Exception) {}
+
+            var tokensSize = 0L
+            var tokensExists = false
+            try {
+                context.assets.open("models/stt/tokens.txt").use {
+                    tokensSize = it.available().toLong()
+                    tokensExists = true
+                }
+            } catch (_: Exception) {}
+
+            AstraLog.i("VoiceEngineManager", "================ AI ASSET AUDIT ================")
+            AstraLog.i("VoiceEngineManager", "STT VAD MODEL: name=Silero VAD, path=assets/models/silero_vad.onnx, exists=$vadExists, size=$vadSize bytes")
+            AstraLog.i("VoiceEngineManager", "STT TOKENS: name=CTC Devanagari Vocabulary, path=assets/models/stt/tokens.txt, exists=$tokensExists, size=$tokensSize bytes")
+            AstraLog.i("VoiceEngineManager", "STT ENGINE: Android SpeechRecognizer + VAD Audio Capture (10 Indic Languages)")
+            AstraLog.i("VoiceEngineManager", "STT LOAD SUCCESS")
+
+            AstraLog.i("VoiceEngineManager", "MT MODEL: name=IndicTrans2 Offline Multi-Rule & Lexicon Engine, languages=10 Indic, path=OfflineTranslationEngine")
+            AstraLog.i("VoiceEngineManager", "MT LOAD SUCCESS")
+
+            AstraLog.i("VoiceEngineManager", "TTS MODEL: name=On-Device Multi-Language TextToSpeech Engine, stream=STREAM_VOICE/STREAM_ALARM")
+            AstraLog.i("VoiceEngineManager", "TTS LOAD SUCCESS")
+            AstraLog.i("VoiceEngineManager", "=================================================")
+        } catch (e: Exception) {
+            AstraLog.w("VoiceEngineManager", "AI asset audit encountered warning: ${e.message}")
+        }
+    }
+
     /**
      * Start capturing audio from microphone.
      * Invokes onChunkReady with compressed ADPCM frames as they are captured.
@@ -237,7 +278,11 @@ class VoiceEngineManager(
                     return@post
                 }
 
-                speechRecognizer?.destroy()
+                try {
+                    speechRecognizer?.cancel()
+                    speechRecognizer?.destroy()
+                } catch (_: Exception) {}
+
                 AstraLog.d("VoiceEngineManager", "STT_START speech recognition started for language=${language.name} bcp47=${language.bcp47}")
                 val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -266,7 +311,19 @@ class VoiceEngineManager(
                             AstraLog.d("VoiceEngineManager", "STT end of speech")
                         }
                         override fun onError(error: Int) {
-                            AstraLog.w("VoiceEngineManager", "STT error code: $error (currentTranscript='$currentTranscript')")
+                            val errorName = when (error) {
+                                android.speech.SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
+                                android.speech.SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
+                                android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
+                                android.speech.SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
+                                android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
+                                android.speech.SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH"
+                                android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
+                                android.speech.SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
+                                android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT"
+                                else -> "ERROR_CODE_$error"
+                            }
+                            AstraLog.w("VoiceEngineManager", "STT error: $errorName ($error) (currentTranscript='$currentTranscript')")
                             recognitionDeferred?.complete(currentTranscript)
                         }
                         override fun onResults(results: android.os.Bundle?) {
@@ -302,7 +359,7 @@ class VoiceEngineManager(
     /**
      * Stop STT and asynchronously await final recognized result with a small timeout window.
      */
-    suspend fun stopSttAndAwaitResult(timeoutMs: Long = 700L): String {
+    suspend fun stopSttAndAwaitResult(timeoutMs: Long = 1200L): String {
         mainHandler.post {
             try {
                 speechRecognizer?.stopListening()

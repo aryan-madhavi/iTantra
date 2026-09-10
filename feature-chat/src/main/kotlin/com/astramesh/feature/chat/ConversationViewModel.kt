@@ -161,14 +161,7 @@ class ConversationViewModel(
             }
         }
 
-        // Start audio capture & Live STT
-        voiceEngineManager?.startRecording(viewModelScope) { chunk, rms ->
-            if (_liveRms.value == 0) _liveRms.value = rms
-            synchronized(recordedAudioBuffer) {
-                recordedAudioBuffer.write(chunk)
-            }
-        }
-
+        // Start Live STT with exclusive microphone access
         voiceEngineManager?.startStt(
             language = _speechLanguage.value,
             onRmsChanged = { rms -> _liveRms.value = rms }
@@ -199,19 +192,14 @@ class ConversationViewModel(
         AstraLog.d("ConversationViewModel", "$modeTag STOP recording ended duration=${duration}s")
 
         viewModelScope.launch {
-            voiceEngineManager?.stopRecording()
-            val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 700L) ?: ""
-
-            val audioBytes = synchronized(recordedAudioBuffer) {
-                recordedAudioBuffer.toByteArray()
-            }
+            val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
 
             val transcript = _liveTranscript.value.trim()
             val textToSend = if (recognizedText.isNotBlank()) {
                 recognizedText
             } else if (transcript.isNotBlank()) {
                 transcript
-            } else if (duration > 0 || audioBytes.isNotEmpty()) {
+            } else if (duration > 0) {
                 // Localized fallback if user spoke but STT engine did not output text
                 if (mode == VoiceMode.EMERGENCY) _speechLanguage.value.getDefaultEmergencyText() else _speechLanguage.value.getDefaultVoiceNoteText()
             } else {
