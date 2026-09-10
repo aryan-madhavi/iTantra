@@ -79,8 +79,11 @@ class MeshEngine(
 
     private var nextSequenceNumber: Long = 0L
 
+    private val lastConnectionAttempt = java.util.concurrent.ConcurrentHashMap<NodeId, Long>()
+
     @Volatile
     private var isStarted = false
+
 
     @Synchronized
     fun start(): AstraResult<Unit> {
@@ -129,17 +132,43 @@ class MeshEngine(
             while (isActive && isStarted) {
                 delay(2000L)
                 try {
-                    val retries = reliableDeliveryManager.getPacketsForRetry()
+                    val retries = reliableDeliveryManager.getPacketsForRetry(
+                        now = System.currentTimeMillis(),
+                        onPacketFailed = { failedPkt ->
+                            AstraLog.w("MeshEngine", "[RETRY-FAILED] Packet ${failedPkt.packetId} to ${failedPkt.destination} reached max retries or expired")
+                            droppedPacketsCounter.incrementAndGet()
+                            scope.launch {
+                                try {
+                                    val directChatId = com.astramesh.core.ChatId("direct_${failedPkt.destination.value}")
+                                    val messages = messageRepository?.observeMessages(directChatId)?.first()
+                                    val unconfirmed = messages?.firstOrNull { it.senderId == localNodeId && it.status != com.astramesh.domain.model.MessageStatus.DELIVERED }
+                                    if (unconfirmed != null) {
+                                        messageRepository?.updateMessageStatus(unconfirmed.id, com.astramesh.domain.model.MessageStatus.FAILED)
+                                    }
+                                } catch (e: Exception) {
+                                    // Ignore failures updating message status
+                                }
+                            }
+                        }
+                    )
                     for (pkt in retries) {
                         AstraLog.d("MeshEngine", "[RETRY] Retrying packet ${pkt.packetId} seq=${pkt.sequenceNumber} to ${pkt.destination}")
-                        sendPacketOverConnection(pkt, pkt.destination)
+                        val route = routingTable.getRoute(pkt.destination)
+                        val target = route?.nextHop ?: pkt.destination
+                        sendPacketOverConnection(pkt, target)
                     }
+
+                    // Periodic memory & queue housekeeping
                     reassembler.pruneStale(10_000L)
+                    storeAndForwardQueue.pruneExpired()
+                    routingTable.pruneExpired()
+                    deduplicationCache.pruneOlderThan(10 * 60 * 1000L)
                 } catch (e: Exception) {
                     AstraLog.e("MeshEngine", "Error in reliability retry worker", e)
                 }
             }
         }
+
 
         updateStatus(isAdvertising = true, isScanning = true)
         return AstraResult.Success(Unit)
@@ -188,7 +217,7 @@ class MeshEngine(
             packetId = pid,
             source = localNodeId,
             destination = destination,
-            visitedBloomFilter = 0,
+            visitedBloomFilter = com.astramesh.routing.LoopDetector.addNode(0, localNodeId),
             payload = payload
         )
 
@@ -316,23 +345,25 @@ class MeshEngine(
                 // -------------------------------------------------------------
                 AstraLog.d("MeshEngine", "[RX] Received voice message seq=${ithantra.sequenceNumber} type=${ithantra.messageType} from ${packet.source}")
 
-                // 1. Send EXACTLY ONE ACK back to sender (requiresAck = false)
-                val listenerLang = preferredLanguage // Dynamic listener preference
-                val ackMsg = com.astramesh.core.IthantraMessage(
-                    senderId = localNodeId,
-                    messageType = com.astramesh.core.MessageType.ACK,
-                    language = listenerLang,
-                    sequenceNumber = ithantra.sequenceNumber,
-                    timestamp = System.currentTimeMillis(),
-                    text = "ACK"
-                )
-                AstraLog.d("MeshEngine", "[TX ACK] Sending ACK for seq=${ithantra.sequenceNumber} to ${packet.source}")
-                sendPacket(packet.source, ackMsg.toBinary(), com.astramesh.domain.model.MessagePriority.CONTROL)
+                val listenerLang = preferredLanguage
+
+                // 1. Send ACK only if unicast and sender requested ACK (no broadcast ACK storm)
+                if (!packet.destination.isBroadcast && packet.flags.requiresAck) {
+                    val ackMsg = com.astramesh.core.IthantraMessage(
+                        senderId = localNodeId,
+                        messageType = com.astramesh.core.MessageType.ACK,
+                        language = listenerLang,
+                        sequenceNumber = ithantra.sequenceNumber,
+                        timestamp = System.currentTimeMillis(),
+                        text = "ACK"
+                    )
+                    AstraLog.d("MeshEngine", "[TX ACK] Sending ACK for seq=${ithantra.sequenceNumber} to ${packet.source}")
+                    sendPacket(packet.source, ackMsg.toBinary(), com.astramesh.domain.model.MessagePriority.CONTROL)
+                }
 
                 // 2. Local Translation if listener language differs
                 val isEmergency = ithantra.messageType == com.astramesh.core.MessageType.ALERT ||
-                        ithantra.messageType == com.astramesh.core.MessageType.SOS ||
-                        com.astramesh.core.EmergencyClassifier.isEmergency(ithantra.text, ithantra.language)
+                        ithantra.messageType == com.astramesh.core.MessageType.SOS
 
                 val textToSpeak: String
                 val speechLanguage: com.astramesh.core.Language
@@ -506,7 +537,10 @@ class MeshEngine(
     }
 
     private fun handleDiscoveredPeer(nodeId: NodeId, deviceAddress: String, rssi: Int) {
-        if (!connectionPool.isConnected(nodeId)) {
+        val now = System.currentTimeMillis()
+        val lastAttempt = lastConnectionAttempt[nodeId] ?: 0L
+        if (!connectionPool.isConnected(nodeId) && (now - lastAttempt > 5000L)) {
+            lastConnectionAttempt[nodeId] = now
             gattClientManager.connectPeer(nodeId, deviceAddress)
         }
         routingTable.updateRoute(
@@ -543,6 +577,53 @@ class MeshEngine(
         }
     }
 
+    suspend fun clearAppDataAndCache(): AstraResult<Unit> {
+        AstraLog.i("MeshEngine", "[CLEANUP] Starting Clear App Data & Cache")
+
+        // 1. Stop BLE activity and cancel background workers
+        val wasRunning = isStarted
+        if (wasRunning) {
+            stop()
+        }
+
+        // 2. Clear in-memory buffers and state
+        storeAndForwardQueue.clear()
+        reliableDeliveryManager.clear()
+        priorityScheduler.clear()
+        reassembler.clear()
+        deduplicationCache.clear()
+        routingTable.clear()
+        connectionPool.clear()
+        lastConnectionAttempt.clear()
+        speechSynthesizer?.clearQueues()
+
+        // 3. Reset packet counters and sequence numbers
+        sentPacketsCounter.set(0)
+        relayedPacketsCounter.set(0)
+        receivedPacketsCounter.set(0)
+        droppedPacketsCounter.set(0)
+        nextSequenceNumber = 0L
+
+        // 4. Purge persistent message and chat history from Database
+        try {
+            messageRepository?.clearAllMessages()
+            chatRepository?.clearAllChats()
+            AstraLog.i("MeshEngine", "[CLEANUP] Successfully cleared message and chat repositories")
+        } catch (e: Exception) {
+            AstraLog.e("MeshEngine", "[CLEANUP] Error clearing database repositories", e)
+        }
+
+        // 5. If engine was running, safely re-initialize and restart
+        if (wasRunning) {
+            start()
+        } else {
+            updateStatus(isAdvertising = false, isScanning = false)
+        }
+
+        AstraLog.i("MeshEngine", "[CLEANUP] Clear App Data & Cache complete. Crypto identity preserved.")
+        return AstraResult.Success(Unit)
+    }
+
     private fun updateStatus(
         isAdvertising: Boolean = _meshStatus.value.isAdvertising,
         isScanning: Boolean = _meshStatus.value.isScanning
@@ -559,3 +640,4 @@ class MeshEngine(
         )
     }
 }
+

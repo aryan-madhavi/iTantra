@@ -41,6 +41,10 @@ class MessageRepositoryImpl(
         messageDao.deleteMessage(id.value)
     }
 
+    override suspend fun clearAllMessages(): AstraResult<Unit> = AstraResult.of {
+        messageDao.clearAll()
+    }
+
     private fun MessageEntity.toDomain(): Message {
         return Message(
             id = MessageId(id),

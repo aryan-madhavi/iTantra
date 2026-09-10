@@ -37,6 +37,10 @@ class ChatRepositoryImpl(
         chatDao.deleteChat(chatId.value)
     }
 
+    override suspend fun clearAllChats(): AstraResult<Unit> = AstraResult.of {
+        chatDao.clearAll()
+    }
+
     private fun ChatEntity.toDomain(): Chat {
         val participants = try {
             participantIdsJson.removeSurrounding("[", "]")

@@ -135,9 +135,10 @@ class SendMessageUseCase(
         gpsLongitude: Float = 0.0f
     ): AstraResult<Message> {
         val senderId = identityRepository.getRotatingNodeId()
-        val detectedEmergency = isEmergency || com.astramesh.core.EmergencyClassifier.isEmergency(text, language)
+        val detectedEmergency = isEmergency
         val msgType = if (detectedEmergency) com.astramesh.core.MessageType.ALERT else com.astramesh.core.MessageType.NORMAL
-        val priority = if (detectedEmergency) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
+        val priority = if (detectedEmergency) MessagePriority.EMERGENCY else if (recipientId.isBroadcast) MessagePriority.GROUP_MESSAGE else MessagePriority.DIRECT_MESSAGE
+        val hopTtl: Byte = if (detectedEmergency) 15.toByte() else 7.toByte()
 
         val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
         val ithantraMessage = com.astramesh.core.IthantraMessage(
@@ -147,7 +148,7 @@ class SendMessageUseCase(
             sequenceNumber = seqNo,
             timestamp = System.currentTimeMillis(),
             text = text,
-            hopTtl = 7,
+            hopTtl = hopTtl,
             gpsLatitude = gpsLatitude,
             gpsLongitude = gpsLongitude
         )
@@ -211,7 +212,7 @@ class EmergencyBroadcastUseCase(
             sequenceNumber = seqNo,
             timestamp = System.currentTimeMillis(),
             text = alertMessage,
-            hopTtl = 15
+            hopTtl = 15.toByte()
         )
 
         val message = Message(

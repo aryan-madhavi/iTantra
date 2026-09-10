@@ -19,21 +19,39 @@ class DuplicateDetectionCache(
 
     fun contains(packetId: PacketId): Boolean = cache.containsKey(packetId)
 
-    fun put(packetId: PacketId) {
-        cache[packetId] = System.currentTimeMillis()
+    fun put(packetId: PacketId, timestamp: Long = System.currentTimeMillis()) {
+        cache[packetId] = timestamp
     }
 
-    fun containsOrPut(packetId: PacketId): Boolean {
+    fun containsOrPut(packetId: PacketId, timestamp: Long = System.currentTimeMillis()): Boolean {
         synchronized(cache) {
             if (cache.containsKey(packetId)) {
                 return true
             }
-            cache[packetId] = System.currentTimeMillis()
+            cache[packetId] = timestamp
             return false
         }
     }
+
+    fun pruneOlderThan(ttlMillis: Long = 10 * 60 * 1000L, now: Long = System.currentTimeMillis()): Int {
+        val cutoff = now - ttlMillis
+        synchronized(cache) {
+            val iterator = cache.entries.iterator()
+            var pruned = 0
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.value < cutoff) {
+                    iterator.remove()
+                    pruned++
+                }
+            }
+            return pruned
+        }
+    }
+
 
     fun size(): Int = cache.size
 
     fun clear() = cache.clear()
 }
+

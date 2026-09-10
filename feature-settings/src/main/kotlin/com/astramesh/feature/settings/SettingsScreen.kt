@@ -26,20 +26,27 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -75,8 +82,11 @@ fun SettingsScreen(
     val fingerprint by viewModel.publicKeyFingerprint.collectAsState()
     val trustStatus by viewModel.trustStatus.collectAsState()
     val meshStatus by viewModel.meshStatus.collectAsState()
+    val isClearing by viewModel.isClearing.collectAsState()
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+
         topBar = {
             AstraTopBar(
                 title = "Settings & Identity",
@@ -280,7 +290,97 @@ fun SettingsScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Data & Cache Maintenance Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "DATA & CACHE MAINTENANCE",
+                        color = AstraCyan,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Clears all temporary BLE slices, packet queues, routing cache, and stored message history to resolve transmission buildup. Your cryptographic identity, keypair, and permanent Node ID are completely preserved.",
+                        color = AstraTextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = { showClearConfirmDialog = true },
+                        enabled = !isClearing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AstraOutline.copy(alpha = 0.8f),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isClearing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = AstraCyan,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Clearing Data & Reinitializing...", fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Clear App Data & Cache", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+
+            if (showClearConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearConfirmDialog = false },
+                    title = {
+                        Text(
+                            text = "Clear App Data & Cache?",
+                            color = AstraTextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "This will completely clear pending transmission queues, temporary BLE reassembly buffers, stale route caches, and stored chat messages, then safely restart mesh services.\n\nYour cryptographic identity, keypair, and permanent Node ID will NOT be deleted.",
+                            color = AstraTextSecondary,
+                            fontSize = 13.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showClearConfirmDialog = false
+                                viewModel.clearAppDataAndCache {
+                                    Toast.makeText(context, "App Data & Cache Cleared. Mesh Reinitialized.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AstraCyan)
+                        ) {
+                            Text("Clear & Reinitialize", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearConfirmDialog = false }) {
+                            Text("Cancel", color = AstraTextSecondary)
+                        }
+                    },
+                    containerColor = AstraSurfaceVariant
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
+
 
             // Panic Wipe Button
             Button(

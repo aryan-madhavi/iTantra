@@ -9,4 +9,7 @@ interface SpeechSynthesizer {
         isEmergency: Boolean = false,
         onDone: (() -> Unit)? = null
     )
+
+    fun clearQueues() {}
 }
+

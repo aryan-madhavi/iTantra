@@ -44,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -128,9 +129,9 @@ fun HomeScreen(
     var timerJob by remember { mutableStateOf<Job?>(null) }
     val recordedAudioBuffer = remember { ByteArrayOutputStream() }
 
-    // Active recipient
-    val activeRecipientId = selectedPeer?.nodeId ?: nearbyPeers.firstOrNull()?.nodeId ?: NodeId.BROADCAST
-    val activeRecipientName = selectedPeer?.displayName ?: nearbyPeers.firstOrNull()?.displayName ?: "All Nearby Mesh"
+    // Active recipient: default to true Mesh Broadcast (no 1:1 lock)
+    val activeRecipientId = selectedPeer?.nodeId ?: NodeId.BROADCAST
+    val activeRecipientName = selectedPeer?.displayName ?: "All Nearby Mesh (Broadcast)"
 
     // Default chat ID
     val activeChatId = if (activeRecipientId.isBroadcast) {
@@ -201,7 +202,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Target Contact / Peer Card
+        // Target Contact / Peer Card (Broadcast vs Direct P2P)
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = AstraSurface),
@@ -214,15 +215,23 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(AstraCyan.copy(alpha = 0.2f)),
+                            .background(if (activeRecipientId.isBroadcast) AstraCyan.copy(alpha = 0.2f) else AstraEmerald.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Radio, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = if (activeRecipientId.isBroadcast) Icons.Default.Radio else Icons.Default.People,
+                            contentDescription = null,
+                            tint = if (activeRecipientId.isBroadcast) AstraCyan else AstraEmerald,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
@@ -233,19 +242,29 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (activeRecipientId.isBroadcast) "Broadcast Mode • 0 hops" else "P2P Connected • Node ${activeRecipientId.toHex().take(8)}",
-                            color = AstraEmerald,
+                            text = if (activeRecipientId.isBroadcast) "📢 Mesh Broadcast • All Reachable Nodes" else "Direct P2P • Node ${activeRecipientId.toHex().take(8)}",
+                            color = if (activeRecipientId.isBroadcast) AstraCyan else AstraEmerald,
                             fontSize = 11.sp
                         )
                     }
                 }
 
-                OutlinedButton(
-                    onClick = onNavigateToContacts,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCyan)
-                ) {
-                    Text("Contacts", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selectedPeer != null) {
+                        TextButton(
+                            onClick = { selectedPeer = null },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("All Mesh", fontSize = 11.sp, color = AstraCyan)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onNavigateToContacts,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCyan)
+                    ) {
+                        Text("Contacts", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

@@ -619,7 +619,19 @@ class VoiceEngineManager(
         speakText(text, language, isEmergency, onDone)
     }
 
+    override fun clearQueues() {
+        stopRecording()
+        stopPlayback()
+        stopStt()
+        playbackQueue.clear()
+        pendingSpeakQueue.clear()
+        try {
+            textToSpeech?.stop()
+        } catch (_: Exception) {}
+    }
+
     fun shutdown() {
+
         stopRecording()
         stopPlayback()
         stopStt()

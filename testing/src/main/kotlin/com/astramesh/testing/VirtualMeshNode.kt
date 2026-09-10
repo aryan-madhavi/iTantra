@@ -86,7 +86,7 @@ class VirtualMeshNode(
             packetId = pid,
             source = nodeId,
             destination = destination,
-            visitedBloomFilter = 0,
+            visitedBloomFilter = com.astramesh.routing.LoopDetector.addNode(0, nodeId),
             payload = payload
         )
 
@@ -149,4 +149,18 @@ class VirtualMeshNode(
             }
         }
     }
+
+    fun clearAppDataAndCache() {
+        storeAndForwardQueue.clear()
+        deduplicationCache.clear()
+        routingTable.clear()
+        reassembler.clear()
+        receivedPacketsHistory.clear()
+        packetsSent.set(0)
+        packetsRelayed.set(0)
+        packetsReceived.set(0)
+        packetsDropped.set(0)
+        sequenceCounter = 0L
+    }
 }
+

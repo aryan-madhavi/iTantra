@@ -22,6 +22,7 @@ interface MessageRepository {
     suspend fun insertMessage(message: Message): AstraResult<Unit>
     suspend fun updateMessageStatus(messageId: MessageId, status: com.astramesh.domain.model.MessageStatus): AstraResult<Unit>
     suspend fun deleteMessage(id: MessageId): AstraResult<Unit>
+    suspend fun clearAllMessages(): AstraResult<Unit>
 }
 
 interface ChatRepository {
@@ -30,6 +31,7 @@ interface ChatRepository {
     suspend fun insertOrUpdateChat(chat: Chat): AstraResult<Unit>
     suspend fun markChatAsRead(chatId: ChatId): AstraResult<Unit>
     suspend fun deleteChat(chatId: ChatId): AstraResult<Unit>
+    suspend fun clearAllChats(): AstraResult<Unit>
 }
 
 interface PeerRepository {
@@ -69,4 +71,5 @@ interface MeshRepository {
     suspend fun sendPacket(recipientId: NodeId, payload: ByteArray, priority: com.astramesh.domain.model.MessagePriority): AstraResult<Unit>
     suspend fun broadcastEmergency(content: String): AstraResult<Unit>
     fun setPreferredLanguage(language: com.astramesh.core.Language)
+    suspend fun clearAppDataAndCache(): AstraResult<Unit>
 }

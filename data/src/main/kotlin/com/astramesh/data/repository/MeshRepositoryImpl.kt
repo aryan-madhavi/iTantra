@@ -36,4 +36,8 @@ class MeshRepositoryImpl(
     override fun setPreferredLanguage(language: com.astramesh.core.Language) {
         meshEngine.preferredLanguage = language
     }
+
+    override suspend fun clearAppDataAndCache(): AstraResult<Unit> =
+        meshEngine.clearAppDataAndCache()
 }
+

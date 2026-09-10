@@ -77,6 +77,24 @@ class SettingsViewModel(
         return "ASTRA-ID:v1:$nodeIdHex:$pubKeyHex"
     }
 
+    private val _isClearing = MutableStateFlow(false)
+    val isClearing: StateFlow<Boolean> = _isClearing.asStateFlow()
+
+    fun clearAppDataAndCache(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            _isClearing.value = true
+            AstraLog.i("SettingsViewModel", "CLEANUP Purging cache, buffers, queues, and messages without touching identity")
+            try {
+                meshRepository.clearAppDataAndCache()
+            } catch (e: Exception) {
+                AstraLog.e("SettingsViewModel", "Error clearing app data and cache", e)
+            } finally {
+                _isClearing.value = false
+            }
+            onComplete()
+        }
+    }
+
     fun emergencyWipeAllData(onComplete: () -> Unit) {
         viewModelScope.launch {
             AstraLog.d("SettingsViewModel", "IDENTITY Emergency wiping all cryptographic keys and data")
@@ -86,4 +104,5 @@ class SettingsViewModel(
         }
     }
 }
+
 

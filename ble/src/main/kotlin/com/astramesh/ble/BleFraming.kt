@@ -117,7 +117,9 @@ class BleFrameFragmenter {
     }
 }
 
-class BleFrameReassembler {
+class BleFrameReassembler(
+    private val maxPartialPackets: Int = 128
+) {
 
     private data class PartialPacket(
         val packetIndex: Int,
@@ -130,11 +132,24 @@ class BleFrameReassembler {
 
     private val partialPackets = ConcurrentHashMap<Int, PartialPacket>()
 
+    val size: Int get() = partialPackets.size
+
     @Synchronized
     fun feedSlice(slice: BleSlice): ByteArray? {
         val existing = partialPackets[slice.packetIndex]
 
         val partial = if (existing == null) {
+            // Guard against unbounded buildup
+            if (partialPackets.size >= maxPartialPackets) {
+                pruneStale(5_000L)
+                if (partialPackets.size >= maxPartialPackets) {
+                    val oldestKey = partialPackets.minByOrNull { it.value.createdAt }?.key
+                    if (oldestKey != null) {
+                        partialPackets.remove(oldestKey)
+                    }
+                }
+            }
+
             val newPartial = PartialPacket(
                 packetIndex = slice.packetIndex,
                 totalSlices = slice.totalSlices,
@@ -181,4 +196,9 @@ class BleFrameReassembler {
         val now = System.currentTimeMillis()
         partialPackets.entries.removeIf { now - it.value.createdAt > timeoutMillis }
     }
+
+    fun clear() {
+        partialPackets.clear()
+    }
 }
+

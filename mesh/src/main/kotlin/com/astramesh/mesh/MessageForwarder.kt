@@ -29,7 +29,19 @@ class MessageForwarder(
             return ForwardingDecision.Drop("Loop detected in packet ${packet.packetId}")
         }
 
-        // Step 3: Check if destined for us
+        // Step 3: Reactive Reverse-Path Route Learning
+        // Automatically learn or refresh shortest route back to packet.source via receiving neighbor
+        if (packet.source != localNodeId) {
+            routingTable.updateRoute(
+                destination = packet.source,
+                nextHop = receivedFromNodeId,
+                cost = (packet.hopCount + 1).toFloat(),
+                hopCount = packet.hopCount + 1,
+                sequenceNumber = packet.sequenceNumber
+            )
+        }
+
+        // Step 4: Check if destined for us
         if (packet.destination == localNodeId) {
             return ForwardingDecision.ConsumeLocally(packet)
         }

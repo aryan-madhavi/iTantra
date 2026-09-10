@@ -31,6 +31,9 @@ interface ChatDao {
 
     @Query("DELETE FROM chats WHERE id = :chatId")
     suspend fun deleteChat(chatId: String)
+
+    @Query("DELETE FROM chats")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -109,6 +112,9 @@ interface PendingQueueDao {
 
     @Query("DELETE FROM pending_queue WHERE id = :id")
     suspend fun remove(id: String)
+
+    @Query("DELETE FROM pending_queue")
+    suspend fun clearAll()
 }
 
 @Dao

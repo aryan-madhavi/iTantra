@@ -81,3 +81,16 @@ build.log
 # Local configs
 Local.xcconfig
 *.profraw
+
+# Android & Gradle
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
