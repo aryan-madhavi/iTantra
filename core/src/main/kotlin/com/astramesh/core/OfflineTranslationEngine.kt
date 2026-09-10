@@ -224,44 +224,220 @@ object OfflineTranslationEngine {
             Language.MALAYALAM to "എല്ലാം ശരിയാണ്.",
             Language.ODIA to "ସବୁକିଛି ଠିକ୍ ଅଛି।",
             Language.BENGALI to "সবকিছু ঠিক আছে।"
+        ),
+        "alpha_perimeter" to mapOf(
+            Language.ENGLISH to "Alpha-7 reporting in, Sector B perimeter clear.",
+            Language.HINDI to "अल्फा-7 की तरफ से सन्देश: सेक्टर बी सुरक्षित है।",
+            Language.GUJARATI to "આલ્ફા-7 તરફથી સંદેશ: સેક્ટર બી સુરક્ષિત છે.",
+            Language.MARATHI to "अल्फा-७ कडून संदेश: क्षेत्र बी सुरक्षित आहे.",
+            Language.TAMIL to "ஆல்ஃபா-7 செய்தி: செக்டார் பி பாதுகாப்பாக உள்ளது.",
+            Language.TELUGU to "ఆల్ఫా-7 నుండి సందేశం: సెక్టార్ బి సురక్షితంగా ఉంది.",
+            Language.KANNADA to "ಆಲ್ಫಾ-7 ನಿಂದ ಸಂದೇಶ: ಸೆಕ್ಟರ್ ಬಿ ಸುರಕ್ಷಿತವಾಗಿದೆ.",
+            Language.MALAYALAM to "ആൽഫ-7 സന്ദേശം: സെക്ടർ ബി സുരക്ഷിതമാണ്.",
+            Language.ODIA to "ଆଲଫା-୭ ରୁ ବାର୍ତ୍ତା: ସେକ୍ଟର ବି ସୁରକ୍ଷିତ ଅଛି।",
+            Language.BENGALI to "আলফা-৭ থেকে বার্তা: সেক্টর বি নিরাপদ রয়েছে।"
+        ),
+        "mesh_relay_ready" to mapOf(
+            Language.ENGLISH to "Acknowledged. Standing by for mesh relay packet.",
+            Language.HINDI to "स्वीकृत। मेश रिले प्रसारण के लिए तैयार हैं।",
+            Language.GUJARATI to "સ્વીકાર્યું. મેશ રિલે પ્રસારણ માટે તૈયાર છે.",
+            Language.MARATHI to "स्वीकृत. मेश रिले प्रक्षेपणासाठी तयार आहोत.",
+            Language.TAMIL to "ஒப்புக்கொள்ளப்பட்டது. மெஷ் ரிலே தயார் நிலையில் உள்ளது.",
+            Language.TELUGU to "అంగీకరించబడింది. మెష్ రిలే ప్రసారానికి సిద్ధంగా ఉంది.",
+            Language.KANNADA to "ಸ್ವೀಕರಿಸಲಾಗಿದೆ. ಮೆಶ್ ರಿಲೇ ಪ್ರಸಾರಕ್ಕೆ ಸಿದ್ಧವಾಗಿದೆ.",
+            Language.MALAYALAM to "അംഗീകരിച്ചു. മെഷ് റിലേ പ്രക്ഷേപണത്തിന് തയ്യാറാണ്.",
+            Language.ODIA to "ସ୍ୱୀକୃତ। ମେଶ୍ ରିଲେ ପ୍ରସାରଣ ପାଇଁ ପ୍ରସ୍ତୁତ।",
+            Language.BENGALI to "স্বীকৃত। মেশ রিলে সম্প্রচারের জন্য প্রস্তুত।"
+        ),
+        "p2p_connection_stable" to mapOf(
+            Language.ENGLISH to "Loud and clear. Off-grid P2P connection stable.",
+            Language.HINDI to "आवाज़ बिल्कुल साफ है। ऑफ-ग्रिड P2P संपर्क स्थापित है।",
+            Language.GUJARATI to "અવાજ એકદમ સ્પષ્ટ છે. ઓફલાઇન જોડાણ ચાલુ છે.",
+            Language.MARATHI to "आवाज स्पष्ट येत आहे. पी२पी नेटवर्क सुरू आहे.",
+            Language.TAMIL to "சிக்னல் தெளிவாக உள்ளது. ஆஃப்லைன் இணைப்பு தயார்.",
+            Language.TELUGU to "సిగ్నల్ స్పష్టంగా ఉంది. ఆఫ్లైన్ కనెక్షన్ సిద్ధంగా ఉంది.",
+            Language.KANNADA to "ಸಿಗ್ನಲ್ ಸ್ಪಷ್ಟವಾಗಿದೆ. ಆಫ್ಲೈನ್ ಸಂಪರ್ಕ ಸಿದ್ಧವಾಗಿದೆ.",
+            Language.MALAYALAM to "ശബ്ദം വ്യക്തമാണ്. ഓഫ്‌ലൈൻ കണക്ഷൻ സുരക്ഷിതമാണ്.",
+            Language.ODIA to "ସ୍ପଷ୍ଟ ଶୁଣାଯାଉଛି। ଅଫଲାଇନ୍ ସଂଯୋଗ ପ୍ରସ୍ତୁତ।",
+            Language.BENGALI to "স্পষ্ট শোনা যাচ্ছে। অফলাইন সংযোগ প্রস্তুত।"
+        ),
+        "emergency_team_dispatched" to mapOf(
+            Language.ENGLISH to "Emergency assistance team dispatched to Grid 4.",
+            Language.HINDI to "आपातकालीन सहायता टीम ग्रिड 4 के लिए रवाना हो गई है।",
+            Language.GUJARATI to "કટોકટી સહાય ટીમ ગ્રીડ 4 માટે રવાના થઈ ગઈ છે.",
+            Language.MARATHI to "तातडीची मदत टीम ग्रिड ४ कडे रवाना झाली आहे.",
+            Language.TAMIL to "அவசர உதவி குழு கிரிட் 4-க்கு அனுப்பப்பட்டுள்ளது.",
+            Language.TELUGU to "అత్యవసర సహాయ బృందం గ్రిడ్ 4కు బయలుదేరింది.",
+            Language.KANNADA to "ತುರ್ತು ಸಹಾಯ ತಂಡವು ಗ್ರಿಡ್ 4 ಕ್ಕೆ ರವಾನೆಯಾಗಿದೆ.",
+            Language.MALAYALAM to "അടിയന്തര സഹായ സംഘം ഗ്രിഡ് 4 ലേക്ക് തിരിച്ചു.",
+            Language.ODIA to "ଜରୁରୀକାଳୀନ ଦଳ ଗ୍ରିଡ୍ ୪ କୁ ପଠାଯାଇଛି।",
+            Language.BENGALI to "জরুরী সহায়তার দল গ্রিড ৪-এর দিকে রওনা হয়েছে।"
         )
     )
+
+    // High-frequency emergency, tactical, and medical vocabulary across all 10 languages
+    private val VOCAB_INDEX: Map<String, Map<Language, String>> = mapOf(
+        "help" to mapOf(
+            Language.ENGLISH to "help", Language.HINDI to "मदद", Language.GUJARATI to "મદદ",
+            Language.MARATHI to "मदत", Language.TAMIL to "உதவி", Language.TELUGU to "సహాయం",
+            Language.KANNADA to "ಸಹಾಯ", Language.MALAYALAM to "സഹായം", Language.ODIA to "ସହାୟତା", Language.BENGALI to "সাহায্য"
+        ),
+        "emergency" to mapOf(
+            Language.ENGLISH to "emergency", Language.HINDI to "आपातकाल", Language.GUJARATI to "કટોકટી",
+            Language.MARATHI to "आणीबाणी", Language.TAMIL to "அவசரம்", Language.TELUGU to "అత్యవసరం",
+            Language.KANNADA to "ತುರ್ತು", Language.MALAYALAM to "അടിയന്തിരം", Language.ODIA to "ଜରୁରୀକାଳୀନ", Language.BENGALI to "জরুরী"
+        ),
+        "danger" to mapOf(
+            Language.ENGLISH to "danger", Language.HINDI to "खतरा", Language.GUJARATI to "જોખમ",
+            Language.MARATHI to "धोका", Language.TAMIL to "ஆபத்து", Language.TELUGU to "ప్రమాదం",
+            Language.KANNADA to "ಅಪಾಯ", Language.MALAYALAM to "അപകടം", Language.ODIA to "ବିପଦ", Language.BENGALI to "বিপদ"
+        ),
+        "safe" to mapOf(
+            Language.ENGLISH to "safe", Language.HINDI to "सुरक्षित", Language.GUJARATI to "સુરક્ષિત",
+            Language.MARATHI to "सुरक्षित", Language.TAMIL to "பாதுகாப்பானது", Language.TELUGU to "సురక్షితం",
+            Language.KANNADA to "ಸುರಕ್ಷಿತ", Language.MALAYALAM to "സുരക്ഷിതം", Language.ODIA to "ସୁରକ୍ଷିତ", Language.BENGALI to "নিরাপদ"
+        ),
+        "water" to mapOf(
+            Language.ENGLISH to "water", Language.HINDI to "पानी", Language.GUJARATI to "પાણી",
+            Language.MARATHI to "पाणी", Language.TAMIL to "தண்ணீர்", Language.TELUGU to "నీరు",
+            Language.KANNADA to "ನೀರು", Language.MALAYALAM to "വെള്ളം", Language.ODIA to "ପାଣି", Language.BENGALI to "জল"
+        ),
+        "food" to mapOf(
+            Language.ENGLISH to "food", Language.HINDI to "भोजन", Language.GUJARATI to "ખોરાક",
+            Language.MARATHI to "अन्न", Language.TAMIL to "உணவு", Language.TELUGU to "ఆహారం",
+            Language.KANNADA to "ಆಹಾರ", Language.MALAYALAM to "ഭക്ഷണം", Language.ODIA to "ଖାଦ୍ୟ", Language.BENGALI to "খাবার"
+        ),
+        "fire" to mapOf(
+            Language.ENGLISH to "fire", Language.HINDI to "आग", Language.GUJARATI to "આગ",
+            Language.MARATHI to "आग", Language.TAMIL to "தீ", Language.TELUGU to "అగ్ని",
+            Language.KANNADA to "ಬೆಂಕಿ", Language.MALAYALAM to "തീ", Language.ODIA to "ନିଆଁ", Language.BENGALI to "আগুন"
+        ),
+        "doctor" to mapOf(
+            Language.ENGLISH to "doctor", Language.HINDI to "डॉक्टर", Language.GUJARATI to "ડૉક્ટર",
+            Language.MARATHI to "डॉक्टर", Language.TAMIL to "மருத்துவர்", Language.TELUGU to "వైద్యుడు",
+            Language.KANNADA to "ವೈದ್ಯರು", Language.MALAYALAM to "ഡോക്ടർ", Language.ODIA to "ଡାକ୍ତର", Language.BENGALI to "ডাক্তার"
+        ),
+        "hospital" to mapOf(
+            Language.ENGLISH to "hospital", Language.HINDI to "अस्पताल", Language.GUJARATI to "હોસ્પિટલ",
+            Language.MARATHI to "रुग्णालय", Language.TAMIL to "மருத்துவமனை", Language.TELUGU to "ఆసుపత్రి",
+            Language.KANNADA to "ಆಸ್ಪತ್ರೆ", Language.MALAYALAM to "ആശുപത്രി", Language.ODIA to "ଡାକ୍ତରଖାନା", Language.BENGALI to "হাসপাতাল"
+        ),
+        "ambulance" to mapOf(
+            Language.ENGLISH to "ambulance", Language.HINDI to "एम्बुलेंस", Language.GUJARATI to "એમ્બ્યુલન્સ",
+            Language.MARATHI to "रुग्णवाहिका", Language.TAMIL to "ஆம்புலன்ஸ்", Language.TELUGU to "అంబులెన్స్",
+            Language.KANNADA to "ಆಂಬ್ಯುಲೆನ್ಸ್", Language.MALAYALAM to "ആംബുലൻസ്", Language.ODIA to "ଆମ୍ବୁଲାନ୍ସ", Language.BENGALI to "অ্যাম্বুলেন্স"
+        ),
+        "police" to mapOf(
+            Language.ENGLISH to "police", Language.HINDI to "पुलिस", Language.GUJARATI to "પોલીસ",
+            Language.MARATHI to "पोलीस", Language.TAMIL to "காவல்", Language.TELUGU to "పోలీసులు",
+            Language.KANNADA to "ಪೊಲೀಸ್", Language.MALAYALAM to "പോലീസ്", Language.ODIA to "ପୋଲିସ", Language.BENGALI to "পুলিশ"
+        ),
+        "team" to mapOf(
+            Language.ENGLISH to "team", Language.HINDI to "टीम", Language.GUJARATI to "ટીમ",
+            Language.MARATHI to "संघ", Language.TAMIL to "குழு", Language.TELUGU to "బృందం",
+            Language.KANNADA to "ತಂಡ", Language.MALAYALAM to "സംഘം", Language.ODIA to "ଦଳ", Language.BENGALI to "দল"
+        ),
+        "rescue" to mapOf(
+            Language.ENGLISH to "rescue", Language.HINDI to "बचाव", Language.GUJARATI to "બચાવ",
+            Language.MARATHI to "बचाव", Language.TAMIL to "மீட்பு", Language.TELUGU to "రక్షణ",
+            Language.KANNADA to "ರಕ್ಷಣೆ", Language.MALAYALAM to "രക്ഷാപ്രവർത്തനം", Language.ODIA to "ଉଦ୍ଧାର", Language.BENGALI to "উদ্ধার"
+        ),
+        "immediately" to mapOf(
+            Language.ENGLISH to "immediately", Language.HINDI to "तुरंत", Language.GUJARATI to "તરત જ",
+            Language.MARATHI to "त्वरित", Language.TAMIL to "உடனடியாக", Language.TELUGU to "వెంటనే",
+            Language.KANNADA to "ತಕ್ಷಣ", Language.MALAYALAM to "ഉടൻ", Language.ODIA to "ତୁରନ୍ତ", Language.BENGALI to "অবিলম্বে"
+        )
+    )
+
+    fun detectLanguage(text: String): Language? {
+        for (ch in text) {
+            when (ch) {
+                in '\u0900'..'\u097F' -> return Language.HINDI
+                in '\u0980'..'\u09FF' -> return Language.BENGALI
+                in '\u0A80'..'\u0AFF' -> return Language.GUJARATI
+                in '\u0B00'..'\u0B7F' -> return Language.ODIA
+                in '\u0B80'..'\u0BFF' -> return Language.TAMIL
+                in '\u0C00'..'\u0C7F' -> return Language.TELUGU
+                in '\u0C80'..'\u0CFF' -> return Language.KANNADA
+                in '\u0D00'..'\u0D7F' -> return Language.MALAYALAM
+            }
+        }
+        if (text.any { it in 'a'..'z' || it in 'A'..'Z' }) {
+            return Language.ENGLISH
+        }
+        return null
+    }
 
     fun translate(text: String, sourceLang: Language, targetLang: Language): String {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return ""
 
-        // Same-language optimization (zero latency, exact transcript preserved)
-        if (sourceLang == targetLang) {
+        val detected = detectLanguage(trimmed)
+        val effectiveSource = detected ?: sourceLang
+
+        // Same-language optimization
+        if (effectiveSource == targetLang && detected == targetLang) {
             return trimmed
         }
 
-        // 1. Exact phrase lookup
+        val cleanInput = trimmed.replace("[।.,?!]".toRegex(), "").trim()
+
+        // 1. Universal phrase lookup: Search across ALL languages in PHRASE_INDEX
         for ((_, translations) in PHRASE_INDEX) {
-            val sourcePhrase = translations[sourceLang]
-            val targetPhrase = translations[targetLang]
-            if (sourcePhrase != null && targetPhrase != null) {
-                val cleanSource = sourcePhrase.replace("[।.,?!]".toRegex(), "").trim()
-                val cleanInput = trimmed.replace("[।.,?!]".toRegex(), "").trim()
-                if (cleanSource.equals(cleanInput, ignoreCase = true)) {
-                    return targetPhrase
+            // Check if cleanInput matches any language in this phrase
+            for ((lang, phrase) in translations) {
+                val cleanPhrase = phrase.replace("[।.,?!]".toRegex(), "").trim()
+                if (cleanPhrase.equals(cleanInput, ignoreCase = true)) {
+                    val targetPhrase = translations[targetLang]
+                    if (targetPhrase != null) {
+                        return targetPhrase
+                    }
                 }
             }
         }
 
-        // 2. Substring phrase match
+        // 2. Substring phrase match across ALL languages
         for ((_, translations) in PHRASE_INDEX) {
-            val sourcePhrase = translations[sourceLang]
-            val targetPhrase = translations[targetLang]
-            if (sourcePhrase != null && targetPhrase != null) {
-                val cleanSource = sourcePhrase.replace("[।.,?!]".toRegex(), "").trim()
-                if (trimmed.contains(cleanSource, ignoreCase = true)) {
-                    return targetPhrase
+            for ((lang, phrase) in translations) {
+                val cleanPhrase = phrase.replace("[।.,?!]".toRegex(), "").trim()
+                if (cleanPhrase.length >= 4 && cleanInput.contains(cleanPhrase, ignoreCase = true)) {
+                    val targetPhrase = translations[targetLang]
+                    if (targetPhrase != null) {
+                        return targetPhrase
+                    }
                 }
             }
         }
 
-        // 3. Fallback: Return original text with language tag if no dictionary match
+        // 3. Word-level multilingual translation fallback
+        val words = cleanInput.split("\\s+".toRegex())
+        val translatedWords = mutableListOf<String>()
+        var matchedAnyWord = false
+
+        for (w in words) {
+            val lowerW = w.lowercase()
+            var translatedW = w
+            for ((_, langMap) in VOCAB_INDEX) {
+                // Check if w matches in any language
+                val matchedEntry = langMap.entries.firstOrNull { it.value.equals(lowerW, ignoreCase = true) }
+                if (matchedEntry != null) {
+                    val tgtW = langMap[targetLang]
+                    if (tgtW != null) {
+                        translatedW = tgtW
+                        matchedAnyWord = true
+                        break
+                    }
+                }
+            }
+            translatedWords.add(translatedW)
+        }
+
+        if (matchedAnyWord) {
+            val danda = if (targetLang in listOf(Language.HINDI, Language.BENGALI, Language.ODIA)) "।" else "."
+            return translatedWords.joinToString(" ") + danda
+        }
+
+        // 4. Fallback: Return original text
         return trimmed
     }
 }

@@ -354,8 +354,6 @@ fun HomeScreen(
                                             recognizedText
                                         } else if (liveTranscript.isNotBlank()) {
                                             liveTranscript
-                                        } else if (duration > 0) {
-                                            selectedLanguage.getDefaultVoiceNoteText()
                                         } else {
                                             ""
                                         }

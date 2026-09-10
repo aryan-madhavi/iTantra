@@ -1,0 +1,35 @@
+pytorch2.5.1:¼
+ì
+inputoutput/0/Relu"Relu2Ë/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/functional.py(1702): relu
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/activation.py(133): forward
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1726): _slow_forward
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/container.py(250): forward
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1726): _slow_forward
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/jit/_trace.py(130): wrapper
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/jit/_trace.py(139): forward
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1747): _call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/nn/modules/module.py(1736): _wrapped_call_impl
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/jit/_trace.py(1500): _get_trace_graph
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/utils.py(904): _trace_and_get_graph_from_model
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/utils.py(997): _create_jit_graph
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/utils.py(1113): _model_to_graph
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/utils.py(1564): _export
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/utils.py(502): export
+/projects/data/asrteam/essentials/miniconda3/envs/temo/lib/python3.10/site-packages/torch/onnx/__init__.py(375): export
+/projects/data/asrteam/speechteam/extras/models_ts/export_onnx.py(42): <module>
+
+main_graphZ
+input
+
+B
+T
+€b
+output
+
+B
+T
+€B

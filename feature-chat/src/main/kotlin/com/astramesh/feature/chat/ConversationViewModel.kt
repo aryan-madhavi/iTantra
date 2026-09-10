@@ -199,9 +199,8 @@ class ConversationViewModel(
                 recognizedText
             } else if (transcript.isNotBlank()) {
                 transcript
-            } else if (duration > 0) {
-                // Localized fallback if user spoke but STT engine did not output text
-                if (mode == VoiceMode.EMERGENCY) _speechLanguage.value.getDefaultEmergencyText() else _speechLanguage.value.getDefaultVoiceNoteText()
+            } else if (duration > 0 && mode == VoiceMode.EMERGENCY) {
+                _speechLanguage.value.getDefaultEmergencyText()
             } else {
                 ""
             }

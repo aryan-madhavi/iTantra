@@ -338,24 +338,26 @@ class MeshEngine(
                 val speechLanguage: com.astramesh.core.Language
                 val snippet: String
 
-                if (ithantra.language == listenerLang) {
+                val detectedSource = com.astramesh.core.OfflineTranslationEngine.detectLanguage(ithantra.text) ?: ithantra.language
+                if (detectedSource == listenerLang && ithantra.language == listenerLang) {
                     textToSpeak = ithantra.text
                     speechLanguage = listenerLang
                     snippet = "[Voice Note]: ${ithantra.text}"
                 } else {
                     val translated = com.astramesh.core.OfflineTranslationEngine.translate(
                         ithantra.text,
-                        ithantra.language,
+                        detectedSource,
                         listenerLang
                     )
                     textToSpeak = translated
                     speechLanguage = listenerLang
-                    snippet = "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
+                    snippet = "[Voice Note ${detectedSource.englishName} -> ${listenerLang.englishName}]: $translated"
                 }
 
                 // 3. Persist voice note in DB
                 val chatId = if (packet.destination.isBroadcast) {
-                    com.astramesh.core.ChatId("chat_broadcast")
+                    if (isEmergency) com.astramesh.core.ChatId("chat_emergency_broadcast")
+                    else com.astramesh.core.ChatId("chat_broadcast")
                 } else {
                     com.astramesh.core.ChatId("direct_${packet.source.value}")
                 }

@@ -99,6 +99,8 @@ fun EmergencyScreen(
     var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
     var languageDropdownExpanded by remember { mutableStateOf(false) }
     var lastBroadcastStatus by remember { mutableStateOf<String?>(null) }
+    var liveTranscript by remember { mutableStateOf("") }
+    var liveRms by remember { mutableStateOf(0) }
 
     val emergencyMessages by messageRepository.observeMessages(com.astramesh.core.ChatId("chat_emergency_broadcast"))
         .collectAsState(initial = emptyList())
@@ -242,6 +244,16 @@ fun EmergencyScreen(
                                 onPress = {
                                     isHoldingSos = true
                                     holdProgress = 0f
+                                    liveTranscript = ""
+                                    voiceEngineManager?.startStt(
+                                        language = selectedLanguage,
+                                        onRmsChanged = { rms -> liveRms = rms }
+                                    ) { transcript ->
+                                        if (transcript.isNotBlank()) {
+                                            liveTranscript = transcript
+                                        }
+                                    }
+
                                     holdJob?.cancel()
                                     holdJob = scope.launch {
                                         val totalMs = 2000L
@@ -256,12 +268,19 @@ fun EmergencyScreen(
                                         if (isActive && holdProgress >= 1f) {
                                             AstraLog.d("EmergencyScreen", "SOS Triggered! Broadcasting distress signal in ${selectedLanguage.englishName}...")
                                             lastBroadcastStatus = "Broadcasting Emergency SOS..."
-                                            val alertText = selectedLanguage.getDefaultEmergencyText()
+                                            val recognized = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 800L) ?: ""
+                                            val alertText = if (recognized.isNotBlank()) {
+                                                recognized
+                                            } else if (liveTranscript.isNotBlank()) {
+                                                liveTranscript
+                                            } else {
+                                                selectedLanguage.getDefaultEmergencyText()
+                                            }
                                             emergencyBroadcastUseCase(
                                                 alertMessage = alertText,
                                                 language = selectedLanguage
                                             )
-                                            lastBroadcastStatus = "Emergency SOS Broadcast Dispatched!"
+                                            lastBroadcastStatus = "Emergency SOS Broadcast Dispatched: '$alertText'"
                                             isHoldingSos = false
                                             holdProgress = 0f
                                         }
@@ -272,6 +291,7 @@ fun EmergencyScreen(
                                     // Released early
                                     isHoldingSos = false
                                     holdProgress = 0f
+                                    voiceEngineManager?.stopStt()
                                     holdJob?.cancel()
                                     holdJob = null
                                 }
@@ -307,6 +327,16 @@ fun EmergencyScreen(
                         color = AstraCrimson,
                         trackColor = AstraSurfaceVariant
                     )
+                    if (liveTranscript.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "\"$liveTranscript\"",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2
+                        )
+                    }
                 }
 
                 lastBroadcastStatus?.let { status ->

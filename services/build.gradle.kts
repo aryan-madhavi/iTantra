@@ -32,6 +32,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.1")
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
