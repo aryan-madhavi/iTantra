@@ -316,18 +316,20 @@ class MeshEngine(
                 // -------------------------------------------------------------
                 AstraLog.d("MeshEngine", "[RX] Received voice message seq=${ithantra.sequenceNumber} type=${ithantra.messageType} from ${packet.source}")
 
-                // 1. Send EXACTLY ONE ACK back to sender (requiresAck = false)
+                // 1. Send EXACTLY ONE ACK back to sender ONLY for Unicast packets requiring ACK
                 val listenerLang = preferredLanguage // Dynamic listener preference
-                val ackMsg = com.astramesh.core.IthantraMessage(
-                    senderId = localNodeId,
-                    messageType = com.astramesh.core.MessageType.ACK,
-                    language = listenerLang,
-                    sequenceNumber = ithantra.sequenceNumber,
-                    timestamp = System.currentTimeMillis(),
-                    text = "ACK"
-                )
-                AstraLog.d("MeshEngine", "[TX ACK] Sending ACK for seq=${ithantra.sequenceNumber} to ${packet.source}")
-                sendPacket(packet.source, ackMsg.toBinary(), com.astramesh.domain.model.MessagePriority.CONTROL)
+                if (!packet.destination.isBroadcast && packet.flags.requiresAck) {
+                    val ackMsg = com.astramesh.core.IthantraMessage(
+                        senderId = localNodeId,
+                        messageType = com.astramesh.core.MessageType.ACK,
+                        language = listenerLang,
+                        sequenceNumber = ithantra.sequenceNumber,
+                        timestamp = System.currentTimeMillis(),
+                        text = "ACK"
+                    )
+                    AstraLog.d("MeshEngine", "[TX ACK] Sending ACK for seq=${ithantra.sequenceNumber} to ${packet.source}")
+                    sendPacket(packet.source, ackMsg.toBinary(), com.astramesh.domain.model.MessagePriority.CONTROL)
+                }
 
                 // 2. Local Translation if listener language differs
                 val isEmergency = ithantra.messageType == com.astramesh.core.MessageType.ALERT ||
@@ -354,10 +356,10 @@ class MeshEngine(
                 }
 
                 // 3. Persist voice note in DB
-                val chatId = if (packet.destination.isBroadcast) {
-                    com.astramesh.core.ChatId("chat_broadcast")
-                } else {
-                    com.astramesh.core.ChatId("direct_${packet.source.value}")
+                val chatId = when {
+                    isEmergency -> com.astramesh.core.ChatId("chat_emergency_broadcast")
+                    packet.destination.isBroadcast -> com.astramesh.core.ChatId("chat_broadcast")
+                    else -> com.astramesh.core.ChatId("direct_${packet.source.value}")
                 }
 
                 val message = com.astramesh.domain.model.Message(
@@ -376,17 +378,27 @@ class MeshEngine(
                 // 4. Update Chat with contact title
                 val peer = peerRepository?.getPeerByNodeId(packet.source)
                 val customName = peer?.displayName?.takeIf { !it.startsWith("Node-") }
-                val chatTitle = customName ?: "Node-${packet.source.toHex().take(8)}"
+                val chatTitle = when {
+                    isEmergency -> "EMERGENCY BROADCAST"
+                    packet.destination.isBroadcast -> "ALL MESH (BROADCAST)"
+                    else -> customName ?: "Node-${packet.source.toHex().take(8)}"
+                }
+
+                val chatType = when {
+                    isEmergency -> com.astramesh.domain.model.ChatType.EMERGENCY
+                    packet.destination.isBroadcast -> com.astramesh.domain.model.ChatType.BROADCAST
+                    else -> com.astramesh.domain.model.ChatType.DIRECT
+                }
 
                 val existingChat = chatRepo.getChatById(chatId) ?: com.astramesh.domain.model.Chat(
                     id = chatId,
                     title = chatTitle,
-                    type = if (packet.destination.isBroadcast) com.astramesh.domain.model.ChatType.BROADCAST else com.astramesh.domain.model.ChatType.DIRECT,
+                    type = chatType,
                     participantIds = listOf(localNodeId, packet.source)
                 )
                 chatRepo.insertOrUpdateChat(
                     existingChat.copy(
-                        title = if (customName != null) customName else existingChat.title,
+                        title = if (customName != null && !packet.destination.isBroadcast && !isEmergency) customName else existingChat.title,
                         lastMessage = message,
                         updatedAt = message.timestamp,
                         unreadCount = existingChat.unreadCount + 1

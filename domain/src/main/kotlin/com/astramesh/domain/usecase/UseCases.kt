@@ -189,6 +189,45 @@ class SendMessageUseCase(
 
         return AstraResult.Success(message)
     }
+
+    suspend fun sendVoiceMessageByMode(
+        mode: com.astramesh.core.CommunicationMode,
+        directRecipientId: NodeId?,
+        text: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI,
+        gpsLatitude: Float = 0.0f,
+        gpsLongitude: Float = 0.0f
+    ): AstraResult<Message> {
+        val (chatId, recipientId, isEmergency) = when (mode) {
+            com.astramesh.core.CommunicationMode.BROADCAST -> Triple(
+                ChatId("chat_broadcast"),
+                NodeId.BROADCAST,
+                false
+            )
+            com.astramesh.core.CommunicationMode.DIRECT -> {
+                val target = directRecipientId ?: NodeId.BROADCAST
+                Triple(
+                    if (target.isBroadcast) ChatId("chat_broadcast") else ChatId("direct_${target.value}"),
+                    target,
+                    false
+                )
+            }
+            com.astramesh.core.CommunicationMode.EMERGENCY -> Triple(
+                ChatId("chat_emergency_broadcast"),
+                NodeId.BROADCAST,
+                true
+            )
+        }
+        return sendIthantraVoiceMessage(
+            chatId = chatId,
+            recipientId = recipientId,
+            text = text,
+            language = language,
+            isEmergency = isEmergency,
+            gpsLatitude = gpsLatitude,
+            gpsLongitude = gpsLongitude
+        )
+    }
 }
 
 class EmergencyBroadcastUseCase(
