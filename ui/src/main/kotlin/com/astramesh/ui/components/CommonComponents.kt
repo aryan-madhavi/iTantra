@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCyan
 import com.astramesh.ui.theme.AstraEmerald
@@ -104,6 +105,7 @@ fun AstraTopBar(
     connectedPeersCount: Int = 0,
     actions: @Composable () -> Unit = {}
 ) {
+    val strings = appStrings()
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -117,7 +119,7 @@ fun AstraTopBar(
                 PulsingStatusDot(isActive = connectedPeersCount > 0)
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "$connectedPeersCount peers",
+                    text = "$connectedPeersCount ${strings.availableNodes}",
                     color = AstraCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium

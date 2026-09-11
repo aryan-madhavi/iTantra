@@ -59,13 +59,16 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
+import com.astramesh.core.OfflineTranslationEngine
 import com.astramesh.core.VoiceMode
 import com.astramesh.domain.model.Message
 import com.astramesh.domain.model.Peer
@@ -77,6 +80,8 @@ import com.astramesh.domain.repository.PeerRepository
 import com.astramesh.domain.usecase.SendMessageUseCase
 import com.astramesh.services.VoiceEngineManager
 import com.astramesh.ui.components.PulsingStatusDot
+import com.astramesh.ui.i18n.AppLanguageState
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -87,6 +92,7 @@ import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraSurfaceVariant
 import com.astramesh.ui.theme.AstraTextPrimary
 import com.astramesh.ui.theme.AstraTextSecondary
+import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -98,6 +104,7 @@ import java.util.Locale
 
 @Composable
 fun HomeScreen(
+    appLanguageState: AppLanguageState,
     localNodeId: NodeId,
     peerRepository: PeerRepository,
     messageRepository: MessageRepository,
@@ -111,11 +118,15 @@ fun HomeScreen(
     onOpenConversation: (chatId: String, recipientId: Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
+    val selectedUiLanguage by appLanguageState.language.collectAsState()
+    Log.d("APP_LANGUAGE_DEBUG", "HOME COLLECTED=${selectedUiLanguage.code}")
     val nearbyPeers by peerRepository.observeNearbyPeers().collectAsState(initial = emptyList())
     var selectedPeer by remember { mutableStateOf<Peer?>(null) }
+    var uiLanguageMenuExpanded by remember { mutableStateOf(false) }
 
     // Selected language for speech input
-    var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
+    var selectedSpeechLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
     var languageDropdownExpanded by remember { mutableStateOf(false) }
 
     // PTT Recording State
@@ -131,7 +142,8 @@ fun HomeScreen(
 
     // Active recipient: default to true Mesh Broadcast (no 1:1 lock)
     val activeRecipientId = selectedPeer?.nodeId ?: NodeId.BROADCAST
-    val activeRecipientName = selectedPeer?.displayName ?: "All Nearby Mesh (Broadcast)"
+    val activeRecipientName = selectedPeer?.displayName ?: strings.availableNodes
+    val selectedUiLanguageLabel = selectedUiLanguage.nativeName
 
     // Default chat ID
     val activeChatId = if (activeRecipientId.isBroadcast) {
@@ -155,44 +167,49 @@ fun HomeScreen(
         ) {
             Column {
                 Text(
-                    text = "iTantra Transceiver",
+                    text = strings.appName,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = AstraTextPrimary
                 )
                 Text(
-                    text = "ID: ${localNodeId.toHex().take(8)} • ${nearbyPeers.size} Peers Active",
+                    text = "ID: ${localNodeId.toHex().take(8)} • ${nearbyPeers.size} ${strings.peersActive}",
                     fontSize = 12.sp,
                     color = AstraEmerald
                 )
             }
 
-            // Language Selector Chip & Dropdown
-            Box {
+            Box(modifier = Modifier.align(Alignment.CenterVertically)) {
                 AssistChip(
-                    onClick = { languageDropdownExpanded = true },
-                    label = { Text(selectedLanguage.nativeName, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    onClick = { uiLanguageMenuExpanded = true },
+                    label = { Text(selectedUiLanguageLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = AstraSurfaceVariant,
                         labelColor = AstraCyan,
                         leadingIconContentColor = AstraCyan
-                    )
+                    ),
+                    modifier = Modifier.testTag("home_language_selector")
                 )
 
                 DropdownMenu(
-                    expanded = languageDropdownExpanded,
-                    onDismissRequest = { languageDropdownExpanded = false }
+                    expanded = uiLanguageMenuExpanded,
+                    onDismissRequest = { uiLanguageMenuExpanded = false }
                 ) {
                     Language.entries.forEach { lang ->
                         DropdownMenuItem(
                             text = { Text("${lang.nativeName} (${lang.englishName})") },
                             onClick = {
-                                selectedLanguage = lang
-                                languageDropdownExpanded = false
-                                voiceEngineManager?.preferredLanguage = lang
-                                meshRepository?.setPreferredLanguage(lang)
-                                AstraLog.d("HomeScreen", "Language changed to ${lang.englishName}")
+                                Log.d(
+                                    "APP_LANGUAGE_DEBUG",
+                                    "HOME CLICK language=${lang.code}, native=${lang.nativeName}"
+                                )
+                                appLanguageState.setLanguage(lang)
+                                Log.d(
+                                    "APP_LANGUAGE_DEBUG",
+                                    "HOME AFTER SET state=${appLanguageState.language.value.code}"
+                                )
+                                uiLanguageMenuExpanded = false
                             }
                         )
                     }
@@ -242,7 +259,7 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (activeRecipientId.isBroadcast) "📢 Mesh Broadcast • All Reachable Nodes" else "Direct P2P • Node ${activeRecipientId.toHex().take(8)}",
+                            text = if (activeRecipientId.isBroadcast) strings.meshBroadcast else "${strings.directPeer} ${activeRecipientId.toHex().take(8)}",
                             color = if (activeRecipientId.isBroadcast) AstraCyan else AstraEmerald,
                             fontSize = 11.sp
                         )
@@ -255,7 +272,7 @@ fun HomeScreen(
                             onClick = { selectedPeer = null },
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("All Mesh", fontSize = 11.sp, color = AstraCyan)
+                            Text(strings.allMesh, fontSize = 11.sp, color = AstraCyan)
                         }
                     }
                     OutlinedButton(
@@ -263,7 +280,7 @@ fun HomeScreen(
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCyan)
                     ) {
-                        Text("Contacts", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.contacts, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -298,7 +315,7 @@ fun HomeScreen(
                     HomeWaveform(rms = liveRms)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Recording: 00:%02d".format(recordingDurationSec),
+                        text = "${strings.recordingAudio}: 00:%02d".format(recordingDurationSec),
                         color = AstraCrimson,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
@@ -347,9 +364,9 @@ fun HomeScreen(
                                         }
                                     }
 
-                                    AstraLog.d("HomeScreen", "PTT_START initiated lang=${selectedLanguage.name}")
+                                    AstraLog.d("HomeScreen", "PTT_START initiated lang=${selectedSpeechLanguage.name}")
                                     voiceEngineManager?.startStt(
-                                        language = selectedLanguage,
+                                        language = selectedSpeechLanguage,
                                         onRmsChanged = { rms -> liveRms = rms }
                                     ) { transcript ->
                                         if (transcript.isNotBlank()) {
@@ -378,12 +395,12 @@ fun HomeScreen(
                                         }
 
                                         if (transcriptToSend.isNotBlank()) {
-                                            AstraLog.d("HomeScreen", "PTT_SEND dispatching transcript='$transcriptToSend' lang=${selectedLanguage.name}")
+                                            AstraLog.d("HomeScreen", "PTT_SEND dispatching transcript='$transcriptToSend' lang=${selectedSpeechLanguage.name}")
                                             sendMessageUseCase.sendIthantraVoiceMessage(
                                                 chatId = activeChatId,
                                                 recipientId = activeRecipientId,
                                                 text = transcriptToSend,
-                                                language = selectedLanguage
+                                                language = selectedSpeechLanguage
                                             )
                                         }
                                     }
@@ -392,32 +409,41 @@ fun HomeScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Icon(
                             Icons.Default.Mic,
-                            contentDescription = "PTT",
+                            contentDescription = strings.pushToTalk,
                             tint = if (isRecording) Color.White else AstraTextPrimary,
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isRecording) "RELEASE TO SEND" else "HOLD TO TALK",
+                            text = if (isRecording) strings.transmitting else strings.holdToBroadcast,
                             color = if (isRecording) Color.White else AstraTextPrimary,
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.Black
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp)
                         )
                         Text(
-                            text = selectedLanguage.nativeName,
+                            text = selectedUiLanguage.nativeName,
                             color = if (isRecording) Color.White.copy(alpha = 0.8f) else AstraCyan,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Reconstructed into speech at receiver",
+                        text = strings.receiverOutputLanguage,
                     color = AstraTextSecondary,
                     fontSize = 11.sp
                 )
@@ -439,13 +465,13 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recent Transmissions",
+                        text = strings.transcriptsTitle,
                         color = AstraCyan,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Tap ▶ to replay",
+                        text = strings.replay,
                         color = AstraTextSecondary,
                         fontSize = 10.sp
                     )
@@ -460,7 +486,7 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No transmissions yet. Hold button above to speak.",
+                            text = strings.noTranscripts,
                             color = AstraTextSecondary,
                             fontSize = 12.sp
                         )
@@ -471,11 +497,12 @@ fun HomeScreen(
                             RecentMessageItem(
                                 message = msg,
                                 localNodeId = localNodeId,
+                                targetLanguage = selectedUiLanguage,
                                 onReplay = {
                                     val cleanText = msg.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
                                     voiceEngineManager?.speakText(
                                         text = cleanText,
-                                        language = selectedLanguage,
+                                        language = selectedSpeechLanguage,
                                         isEmergency = msg.priority == com.astramesh.domain.model.MessagePriority.EMERGENCY
                                     )
                                 }
@@ -497,7 +524,7 @@ fun HomeScreen(
         ) {
             Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("EMERGENCY SOS BROADCAST", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(strings.emergencyBroadcast, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }
@@ -506,9 +533,28 @@ fun HomeScreen(
 fun RecentMessageItem(
     message: Message,
     localNodeId: NodeId,
+    targetLanguage: Language,
     onReplay: () -> Unit
 ) {
+    val strings = appStrings()
     val isFromMe = message.senderId == localNodeId
+    val voiceNotePrefix = "[Voice Note]: "
+    val displayContent = if (
+        message.contentType == com.astramesh.domain.model.MessageContentType.AUDIO_NOTE &&
+        message.content.startsWith(voiceNotePrefix)
+    ) {
+        val transcript = message.content.removePrefix(voiceNotePrefix)
+        val sourceLanguage = OfflineTranslationEngine.detectLanguage(transcript)
+        val displayedTranscript = when {
+            sourceLanguage == null || sourceLanguage == targetLanguage -> transcript
+            else -> runCatching {
+                OfflineTranslationEngine.translate(transcript, sourceLanguage, targetLanguage)
+            }.getOrDefault(transcript)
+        }
+        "$voiceNotePrefix$displayedTranscript"
+    } else {
+        message.content
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -528,7 +574,7 @@ fun RecentMessageItem(
             ) {
                 Icon(
                     Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    contentDescription = strings.replay,
                     tint = if (message.priority == com.astramesh.domain.model.MessagePriority.EMERGENCY) AstraCrimson else AstraCyan,
                     modifier = Modifier.size(18.dp)
                 )
@@ -536,13 +582,13 @@ fun RecentMessageItem(
             Spacer(modifier = Modifier.width(4.dp))
             Column {
                 Text(
-                    text = message.content,
+                    text = displayContent,
                     color = AstraTextPrimary,
                     fontSize = 12.sp,
                     maxLines = 1
                 )
                 Text(
-                    text = if (isFromMe) "Sent • Reconstructed locally" else "Received • Speech decoded",
+                    text = if (isFromMe) "${strings.sent} • ${strings.savedToSystem}" else "${strings.received} • ${strings.recordingAudio}",
                     color = AstraTextSecondary,
                     fontSize = 9.sp
                 )

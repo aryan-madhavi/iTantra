@@ -81,6 +81,7 @@ import com.astramesh.domain.model.Message
 import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.model.MessageStatus
 import com.astramesh.ui.components.PulsingStatusDot
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -102,6 +103,7 @@ fun ConversationScreen(
     onBackClicked: () -> Unit,
     localNodeId: NodeId
 ) {
+    val strings = appStrings()
     val messages by viewModel.messages.collectAsState()
     val inputText by viewModel.inputText.collectAsState()
     val isRecordingPtt by viewModel.isRecordingPtt.collectAsState()
@@ -119,10 +121,10 @@ fun ConversationScreen(
         AlertDialog(
             onDismissRequest = { showSosConfirmDialog = false },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AstraCrimson) },
-            title = { Text("Broadcast Emergency SOS?", color = AstraTextPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text(strings.emergencyAlertTitle, color = AstraTextPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "This transmits a high-priority emergency packet across all mesh hops to every nearby peer.",
+                    strings.emergencyAlertDesc,
                     color = AstraTextSecondary
                 )
             },
@@ -134,12 +136,12 @@ fun ConversationScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson)
                 ) {
-                    Text("Broadcast SOS", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(strings.broadcastAlertNow, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showSosConfirmDialog = false }) {
-                    Text("Cancel", color = AstraTextSecondary)
+                    Text(strings.cancel, color = AstraTextSecondary)
                 }
             },
             containerColor = AstraSurfaceVariant
@@ -147,7 +149,7 @@ fun ConversationScreen(
     }
 
     val recipientDisplayName by viewModel.recipientDisplayName.collectAsState()
-    val displayName = recipientDisplayName ?: "Device ${viewModel.recipientId.toHex().take(8)}"
+    val displayName = recipientDisplayName ?: "${strings.node} ${viewModel.recipientId.toHex().take(8)}"
 
     Scaffold(
         topBar = {
@@ -165,7 +167,7 @@ fun ConversationScreen(
                             PulsingStatusDot(isActive = true)
                         }
                         Text(
-                            text = "P2P Mesh Link • ${currentVoiceMode.name.replace('_', ' ')}",
+                            text = "${strings.p2pMeshLink} • ${when (currentVoiceMode) { VoiceMode.PUSH_TO_TALK -> strings.pushToTalk; VoiceMode.WALKIE_TALKIE -> strings.secureMesh; VoiceMode.EMERGENCY -> strings.emergencyBroadcast; VoiceMode.CONTINUOUS -> strings.continuousSpeech }}",
                             color = AstraCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -176,7 +178,7 @@ fun ConversationScreen(
                     IconButton(onClick = onBackClicked) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = strings.back,
                             tint = AstraTextPrimary
                         )
                     }
@@ -204,7 +206,7 @@ fun ConversationScreen(
             ) {
                 AssistChip(
                     onClick = { viewModel.setVoiceMode(VoiceMode.PUSH_TO_TALK) },
-                    label = { Text("PTT", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(strings.pushToTalk, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan.copy(alpha = 0.25f) else Color.Transparent,
@@ -214,7 +216,7 @@ fun ConversationScreen(
                 )
                 AssistChip(
                     onClick = { viewModel.setVoiceMode(VoiceMode.WALKIE_TALKIE) },
-                    label = { Text("Walkie-Talkie", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(strings.secureMesh, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
@@ -224,7 +226,7 @@ fun ConversationScreen(
                 )
                 AssistChip(
                     onClick = { viewModel.setVoiceMode(VoiceMode.EMERGENCY) },
-                    label = { Text("SOS Voice", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(strings.emergencyBroadcast, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson.copy(alpha = 0.25f) else Color.Transparent,
@@ -234,7 +236,7 @@ fun ConversationScreen(
                 )
                 AssistChip(
                     onClick = { viewModel.toggleContinuousMode() },
-                    label = { Text(if (isContinuousModeActive) "STT: ON" else "STT: OFF", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(if (isContinuousModeActive) strings.sttOn else strings.sttOff, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Hearing, contentDescription = null, modifier = Modifier.size(14.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (isContinuousModeActive) AstraCyan.copy(alpha = 0.35f) else Color.Transparent,
@@ -269,7 +271,7 @@ fun ConversationScreen(
             ) {
                 items(messages.reversed(), key = { it.id.value }) { message ->
                     val isFromMe = message.senderId == localNodeId
-                    val senderName = if (isFromMe) "You" else (recipientDisplayName ?: "Node-${message.senderId.toHex().take(6)}")
+                    val senderName = if (isFromMe) strings.you else (recipientDisplayName ?: "${strings.node}-${message.senderId.toHex().take(6)}")
                     MessageBubble(
                         message = message,
                         isFromMe = isFromMe,
@@ -292,7 +294,7 @@ fun ConversationScreen(
                     value = inputText,
                     onValueChange = viewModel::onInputTextChanged,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Write encrypted mesh message...", color = AstraTextSecondary) },
+                    placeholder = { Text(strings.enterNamePlaceholder, color = AstraTextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = AstraTextPrimary,
                         unfocusedTextColor = AstraTextPrimary,
@@ -315,7 +317,7 @@ fun ConversationScreen(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
+                        contentDescription = strings.continueButton,
                         tint = Color.Black
                     )
                 }
@@ -338,6 +340,7 @@ fun VoiceControlPanel(
     onPttStop: () -> Unit,
     onSosClicked: () -> Unit
 ) {
+    val strings = appStrings()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -354,7 +357,7 @@ fun VoiceControlPanel(
             when (voiceMode) {
                 VoiceMode.PUSH_TO_TALK -> {
                     Text(
-                        text = if (isRecording) "RECORDING (HOLD TO TALK)" else "PUSH-TO-TALK MODE",
+                        text = if (isRecording) strings.recordingHold else strings.pushToTalk,
                         color = if (isRecording) AstraCrimson else AstraCyan,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -366,7 +369,7 @@ fun VoiceControlPanel(
 
                     HoldToTalkButton(
                         isRecording = isRecording,
-                        label = if (isRecording) "Release to Send (${recordingDurationSec}s)" else "Hold to Talk",
+                        label = if (isRecording) "${strings.releaseToSend} (${recordingDurationSec}s)" else strings.holdToTalk,
                         buttonColor = if (isRecording) AstraCrimson else AstraCyan,
                         iconTint = if (isRecording) Color.White else Color.Black,
                         onPressStart = onPttStart,
@@ -380,7 +383,7 @@ fun VoiceControlPanel(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (isReceiverSpeaking) "PEER TRANSMITTING (BUSY)" else if (isRecording) "TRANSMITTING..." else "WALKIE-TALKIE (HALF-DUPLEX)",
+                            text = if (isReceiverSpeaking) strings.peerBusy else if (isRecording) strings.transmitting else strings.walkieTalkie,
                             color = if (isReceiverSpeaking) AstraAmber else if (isRecording) AstraEmerald else AstraTextSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -396,7 +399,7 @@ fun VoiceControlPanel(
 
                     HoldToTalkButton(
                         isRecording = isRecording,
-                        label = if (isRecording) "Transmitting (${recordingDurationSec}s)..." else "Hold to Transmit",
+                        label = if (isRecording) "${strings.transmitting} (${recordingDurationSec}s)..." else strings.holdToTransmit,
                         buttonColor = if (isRecording) AstraEmerald else AstraSurface,
                         iconTint = if (isRecording) Color.Black else AstraEmerald,
                         enabled = !isReceiverSpeaking,
@@ -406,14 +409,14 @@ fun VoiceControlPanel(
                 }
                 VoiceMode.EMERGENCY -> {
                     Text(
-                        text = "EMERGENCY SOS VOICE BROADCAST",
+                        text = strings.emergencyVoiceBroadcast,
                         color = AstraCrimson,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Highest mesh packet priority with multi-hop flood delivery",
+                        text = strings.emergencyPriority,
                         color = AstraTextSecondary,
                         fontSize = 11.sp
                     )
@@ -431,7 +434,7 @@ fun VoiceControlPanel(
                         ) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Broadcast SOS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(strings.broadcastSos, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         Box(
@@ -455,7 +458,7 @@ fun VoiceControlPanel(
                                 Icon(Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.White else AstraCrimson, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isRecording) "Sending (${recordingDurationSec}s)..." else "Hold SOS Voice",
+                                    text = if (isRecording) "${strings.transmitting} (${recordingDurationSec}s)..." else strings.holdSosVoice,
                                     color = if (isRecording) Color.White else AstraCrimson,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp
@@ -471,7 +474,7 @@ fun VoiceControlPanel(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "HANDS-FREE CONTINUOUS SPEECH (STT/TTS)",
+                            text = strings.continuousSpeech,
                             color = AstraCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -502,7 +505,7 @@ fun VoiceControlPanel(
                                 .padding(8.dp)
                         ) {
                             Text(
-                                text = "Transcript: \"$liveTranscript\"",
+                                text = "${strings.transcript}: \"$liveTranscript\"",
                                 color = AstraTextPrimary,
                                 fontSize = 12.sp
                             )
@@ -613,6 +616,8 @@ fun MessageBubble(
     senderName: String = "",
     onPlayAudio: (() -> Unit)? = null
 ) {
+    val strings = appStrings()
+
     val bubbleColor = if (isFromMe) AstraCyan.copy(alpha = 0.2f) else AstraSurfaceVariant
     val alignment = if (isFromMe) Alignment.End else Alignment.Start
 
@@ -647,7 +652,7 @@ fun MessageBubble(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Emergency, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("EMERGENCY ALERT", color = AstraCrimson, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.emergencyBroadcast, color = AstraCrimson, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }
@@ -666,7 +671,7 @@ fun MessageBubble(
                     ) {
                         Icon(
                             Icons.Default.PlayArrow,
-                            contentDescription = "Play Speech",
+                            contentDescription = strings.pushToTalk,
                             tint = Color.Black,
                             modifier = Modifier.size(20.dp)
                         )
@@ -689,7 +694,7 @@ fun MessageBubble(
                             }
                         }
                         Text(
-                            text = "Voice Message",
+                            text = strings.recordingAudio,
                             color = AstraTextSecondary,
                             fontSize = 10.sp
                         )
@@ -720,7 +725,7 @@ fun MessageBubble(
                             MessageStatus.SENT, MessageStatus.RELAYED -> {
                                 Icon(
                                     Icons.Default.Check,
-                                    contentDescription = "Sent",
+                                    contentDescription = strings.sent,
                                     tint = AstraTextSecondary,
                                     modifier = Modifier.size(12.dp)
                                 )
@@ -728,7 +733,7 @@ fun MessageBubble(
                             MessageStatus.DELIVERED, MessageStatus.READ -> {
                                 Icon(
                                     Icons.Default.DoneAll,
-                                    contentDescription = "Delivered",
+                                    contentDescription = strings.delivered,
                                     tint = AstraCyan,
                                     modifier = Modifier.size(14.dp)
                                 )

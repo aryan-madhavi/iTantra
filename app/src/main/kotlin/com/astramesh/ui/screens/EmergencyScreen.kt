@@ -75,6 +75,7 @@ import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraSurfaceVariant
 import com.astramesh.ui.theme.AstraTextPrimary
 import com.astramesh.ui.theme.AstraTextSecondary
+import com.astramesh.ui.i18n.appStrings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -93,6 +94,7 @@ fun EmergencyScreen(
     onBackClicked: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
     var isHoldingSos by remember { mutableStateOf(false) }
     var holdProgress by remember { mutableStateOf(0f) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
@@ -128,19 +130,19 @@ fun EmergencyScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBackClicked) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = AstraTextPrimary)
+                Icon(Icons.Default.ArrowBack, contentDescription = strings.back, tint = AstraTextPrimary)
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "EMERGENCY BEACON",
+                    text = strings.emergencyBroadcast,
                     color = AstraCrimson,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "HIGH-PRIORITY MESH FLOODING",
+                    text = strings.broadcastAlertNow,
                     color = AstraTextSecondary,
                     fontSize = 11.sp
                 )
@@ -193,7 +195,7 @@ fun EmergencyScreen(
                 Icon(androidx.compose.material.icons.Icons.Default.Warning, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Distress alerts override DND, gain exclusive audio focus, and trigger siren + vibration on all listening devices in mesh range.",
+                    text = strings.distressDescription,
                     color = AstraTextPrimary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -215,14 +217,14 @@ fun EmergencyScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "ARE YOU IN IMMEDIATE DANGER?",
+                    text = strings.emergencyAlertTitle,
                     color = AstraTextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (isHoldingSos) "Keep holding to broadcast..." else "Hold for 2 seconds to broadcast SOS",
+                    text = if (isHoldingSos) strings.transmitting else strings.holdToBroadcast,
                     color = if (isHoldingSos) AstraCrimson else AstraTextSecondary,
                     fontSize = 12.sp
                 )
@@ -267,7 +269,7 @@ fun EmergencyScreen(
 
                                         if (isActive && holdProgress >= 1f) {
                                             AstraLog.d("EmergencyScreen", "SOS Triggered! Broadcasting distress signal in ${selectedLanguage.englishName}...")
-                                            lastBroadcastStatus = "Broadcasting Emergency SOS..."
+                                            lastBroadcastStatus = strings.transmitting
                                             val recognized = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 800L) ?: ""
                                             val alertText = if (recognized.isNotBlank()) {
                                                 recognized
@@ -280,7 +282,7 @@ fun EmergencyScreen(
                                                 alertMessage = alertText,
                                                 language = selectedLanguage
                                             )
-                                            lastBroadcastStatus = "Emergency SOS Broadcast Dispatched: '$alertText'"
+                                            lastBroadcastStatus = "${strings.emergencyBroadcast}: $alertText"
                                             isHoldingSos = false
                                             holdProgress = 0f
                                         }
@@ -302,13 +304,13 @@ fun EmergencyScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             Icons.Default.Emergency,
-                            contentDescription = "SOS",
+                            contentDescription = strings.emergencyBroadcast,
                             tint = Color.White,
                             modifier = Modifier.size(54.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "HOLD SOS",
+                            text = strings.holdSos,
                             color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Black
@@ -361,7 +363,7 @@ fun EmergencyScreen(
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
-                    text = "Distress Broadcasts Log",
+                        text = strings.transcriptsTitle,
                     color = AstraCrimson,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
@@ -373,7 +375,7 @@ fun EmergencyScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No active distress alerts in sector.", color = AstraTextSecondary, fontSize = 11.sp)
+                        Text(strings.noTranscripts, color = AstraTextSecondary, fontSize = 11.sp)
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {

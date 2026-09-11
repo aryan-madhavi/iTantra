@@ -1,10 +1,12 @@
 package com.astramesh
 
 import android.content.Intent
+import android.util.Log
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +59,10 @@ import com.astramesh.ui.theme.AstraEmerald
 import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraSurfaceVariant
 import com.astramesh.ui.theme.AstraTheme
+import com.astramesh.ui.i18n.AppLanguageState
+import com.astramesh.ui.i18n.AppStrings
+import com.astramesh.ui.i18n.LocalAppStrings
+import com.astramesh.ui.i18n.appStrings
 import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Radio
@@ -64,6 +71,7 @@ import com.astramesh.domain.usecase.EmergencyBroadcastUseCase
 import com.astramesh.ui.screens.ContactsScreen
 import com.astramesh.ui.screens.EmergencyScreen
 import com.astramesh.ui.screens.HomeScreen
+import androidx.compose.runtime.CompositionLocalProvider
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -73,6 +81,8 @@ import com.astramesh.common.AstraLog
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    private lateinit var appLanguageState: AppLanguageState
 
     @Inject lateinit var chatRepository: ChatRepository
     @Inject lateinit var messageRepository: MessageRepository
@@ -100,6 +110,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appLanguageState = AppLanguageState(applicationContext)
 
         if (BlePermissionManager.hasPermissions(this)) {
             startMeshForegroundService()
@@ -110,18 +121,30 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AstraTheme {
-                MainAppContent(
-                    chatRepository = chatRepository,
-                    messageRepository = messageRepository,
-                    identityRepository = identityRepository,
-                    meshRepository = meshRepository,
-                    peerRepository = peerRepository,
-                    sendMessageUseCase = sendMessageUseCase,
-                    emergencyBroadcastUseCase = emergencyBroadcastUseCase,
-                    discoverPeersUseCase = discoverPeersUseCase,
-                    verifyPeerTrustUseCase = verifyPeerTrustUseCase,
-                    voiceEngineManager = voiceEngineManager
+                val uiLanguage by appLanguageState.language.collectAsStateWithLifecycle()
+                Log.d("APP_LANGUAGE_DEBUG", "MainActivity uiLanguage = ${uiLanguage.code}")
+                val currentStrings = AppStrings.forLanguage(uiLanguage.code)
+                Log.d(
+                    "APP_LANGUAGE_DEBUG",
+                    "AppStrings language = ${currentStrings.languageCode}"
                 )
+                CompositionLocalProvider(
+                    LocalAppStrings provides currentStrings
+                ) {
+                    MainAppContent(
+                        appLanguageState = appLanguageState,
+                        chatRepository = chatRepository,
+                        messageRepository = messageRepository,
+                        identityRepository = identityRepository,
+                        meshRepository = meshRepository,
+                        peerRepository = peerRepository,
+                        sendMessageUseCase = sendMessageUseCase,
+                        emergencyBroadcastUseCase = emergencyBroadcastUseCase,
+                        discoverPeersUseCase = discoverPeersUseCase,
+                        verifyPeerTrustUseCase = verifyPeerTrustUseCase,
+                        voiceEngineManager = voiceEngineManager
+                    )
+                }
             }
         }
     }
@@ -138,6 +161,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainAppContent(
+    appLanguageState: AppLanguageState,
     chatRepository: ChatRepository,
     messageRepository: MessageRepository,
     identityRepository: IdentityRepository,
@@ -174,7 +198,8 @@ fun MainAppContent(
         emergencyBroadcastUseCase = emergencyBroadcastUseCase,
         discoverPeersUseCase = discoverPeersUseCase,
         verifyPeerTrustUseCase = verifyPeerTrustUseCase,
-        voiceEngineManager = voiceEngineManager
+        voiceEngineManager = voiceEngineManager,
+        appLanguageState = appLanguageState
     )
 }
 
@@ -191,10 +216,12 @@ fun MainAppScaffold(
     emergencyBroadcastUseCase: EmergencyBroadcastUseCase,
     discoverPeersUseCase: DiscoverPeersUseCase,
     verifyPeerTrustUseCase: VerifyPeerTrustUseCase,
-    voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
+    voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null,
+    appLanguageState: AppLanguageState
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val strings = appStrings()
 
     val isConversationScreen = currentRoute?.startsWith("conversation") == true
 
@@ -205,8 +232,8 @@ fun MainAppScaffold(
                     containerColor = AstraSurface
                 ) {
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Radio, contentDescription = "Walkie-Talkie") },
-                        label = { Text("PTT") },
+                        icon = { Icon(Icons.Default.Radio, contentDescription = strings.pushToTalk) },
+                        label = { Text(strings.pushToTalk) },
                         selected = currentRoute == Screen.Home.route,
                         onClick = {
                             if (currentRoute != Screen.Home.route) {
@@ -225,8 +252,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.People, contentDescription = "Contacts") },
-                        label = { Text("Contacts") },
+                        icon = { Icon(Icons.Default.People, contentDescription = strings.navDiscovery) },
+                        label = { Text(strings.navDiscovery) },
                         selected = currentRoute == Screen.Contacts.route,
                         onClick = {
                             if (currentRoute != Screen.Contacts.route) {
@@ -243,8 +270,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chats") },
-                        label = { Text("Chats") },
+                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = strings.navComms) },
+                        label = { Text(strings.navComms) },
                         selected = currentRoute == Screen.ChatList.route,
                         onClick = {
                             if (currentRoute != Screen.ChatList.route) {
@@ -261,8 +288,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Emergency, contentDescription = "SOS") },
-                        label = { Text("SOS") },
+                        icon = { Icon(Icons.Default.Emergency, contentDescription = strings.emergencyBroadcast) },
+                        label = { Text(strings.emergencyBroadcast) },
                         selected = currentRoute == Screen.Emergency.route,
                         onClick = {
                             if (currentRoute != Screen.Emergency.route) {
@@ -279,8 +306,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings") },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = strings.settingsTitle) },
+                        label = { Text(strings.settingsTitle) },
                         selected = currentRoute == Screen.Settings.route,
                         onClick = {
                             if (currentRoute != Screen.Settings.route) {
@@ -310,6 +337,7 @@ fun MainAppScaffold(
             ) {
                 composable(Screen.Home.route) {
                     HomeScreen(
+                        appLanguageState = appLanguageState,
                         localNodeId = localNodeId,
                         peerRepository = peerRepository,
                         messageRepository = messageRepository,
@@ -403,6 +431,7 @@ fun MainAppScaffold(
                     }
                     SettingsScreen(
                         viewModel = viewModel,
+                        appLanguageState = appLanguageState,
                         onShowQrClicked = {}
                     )
                 }
