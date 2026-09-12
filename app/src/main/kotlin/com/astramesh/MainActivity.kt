@@ -205,8 +205,8 @@ fun MainAppScaffold(
                     containerColor = AstraSurface
                 ) {
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Radio, contentDescription = "Walkie-Talkie") },
-                        label = { Text("PTT") },
+                        icon = { Icon(Icons.Default.Radio, contentDescription = "Transceiver") },
+                        label = { Text("Transceiver") },
                         selected = currentRoute == Screen.Home.route,
                         onClick = {
                             if (currentRoute != Screen.Home.route) {
@@ -225,8 +225,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.People, contentDescription = "Contacts") },
-                        label = { Text("Contacts") },
+                        icon = { Icon(Icons.Default.People, contentDescription = "Mesh Nodes") },
+                        label = { Text("Mesh Nodes") },
                         selected = currentRoute == Screen.Contacts.route,
                         onClick = {
                             if (currentRoute != Screen.Contacts.route) {
@@ -243,26 +243,8 @@ fun MainAppScaffold(
                     )
 
                     NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chats") },
-                        label = { Text("Chats") },
-                        selected = currentRoute == Screen.ChatList.route,
-                        onClick = {
-                            if (currentRoute != Screen.ChatList.route) {
-                                navController.navigate(Screen.ChatList.route)
-                            }
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = AstraCyan,
-                            selectedTextColor = AstraCyan,
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = AstraSurfaceVariant
-                        )
-                    )
-
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Emergency, contentDescription = "SOS") },
-                        label = { Text("SOS") },
+                        icon = { Icon(Icons.Default.Emergency, contentDescription = "SOS Beacon") },
+                        label = { Text("SOS Beacon") },
                         selected = currentRoute == Screen.Emergency.route,
                         onClick = {
                             if (currentRoute != Screen.Emergency.route) {
@@ -328,6 +310,7 @@ fun MainAppScaffold(
 
                 composable(Screen.Contacts.route) {
                     ContactsScreen(
+                        localNodeId = localNodeId,
                         peerRepository = peerRepository,
                         onOpenConversation = { chatId, recipientId ->
                             navController.navigate(Screen.Conversation.createRoute(chatId, recipientId))

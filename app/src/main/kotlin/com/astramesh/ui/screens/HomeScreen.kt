@@ -23,21 +23,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CellTower
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -74,8 +77,9 @@ import com.astramesh.core.ChatId
 import com.astramesh.core.CommunicationMode
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
-import com.astramesh.core.VoiceMode
 import com.astramesh.domain.model.Message
+import com.astramesh.domain.model.MessagePriority
+import com.astramesh.domain.model.MessageStatus
 import com.astramesh.domain.model.Peer
 import com.astramesh.domain.repository.ChatRepository
 import com.astramesh.domain.repository.IdentityRepository
@@ -104,6 +108,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class PttState {
+    IDLE,
+    RECORDING,
+    TRANSMITTING,
+    RELAYING,
+    RECEIVING
+}
+
 @Composable
 fun HomeScreen(
     localNodeId: NodeId,
@@ -126,12 +138,12 @@ fun HomeScreen(
     var communicationMode by remember { mutableStateOf(CommunicationMode.BROADCAST) }
     var selectedDirectPeer by remember { mutableStateOf<Peer?>(null) }
 
-    // Selected language for speech input
+    // Selected language for speech input / output
     var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
     var languageDropdownExpanded by remember { mutableStateOf(false) }
 
-    // PTT Recording State
-    var isRecording by remember { mutableStateOf(false) }
+    // PTT Transceiver State
+    var pttState by remember { mutableStateOf(PttState.IDLE) }
     var recordingDurationSec by remember { mutableStateOf(0) }
     var liveRms by remember { mutableStateOf(0) }
     var liveTranscript by remember { mutableStateOf("") }
@@ -161,10 +173,10 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AstraBackground)
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         // -------------------------------------------------------------
-        // TOP STATUS BAR & LANGUAGE SELECTOR
+        // 1. TOP TACTICAL TELEMETRY HEADER & LANGUAGE SELECTOR
         // -------------------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -173,24 +185,41 @@ fun HomeScreen(
         ) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusDotColor = when {
+                        !meshStatus.isAdvertising && !meshStatus.isScanning -> AstraCrimson
+                        nearbyPeers.isEmpty() -> AstraAmber
+                        else -> AstraEmerald
+                    }
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(9.dp)
                             .clip(CircleShape)
-                            .background(AstraEmerald)
+                            .background(statusDotColor)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "iTantra Walkie-Talkie",
-                        fontSize = 18.sp,
+                        text = "iTANTRA TRANSCEIVER",
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
-                        color = AstraTextPrimary
+                        color = AstraTextPrimary,
+                        letterSpacing = 1.sp
                     )
                 }
+                val networkStatusText = when {
+                    !meshStatus.isAdvertising && !meshStatus.isScanning -> "OFFLINE • BLE MESH OFF"
+                    nearbyPeers.isEmpty() -> "Node ${localNodeId.toHex().take(8)} • SCANNING (0 PEERS)"
+                    else -> "Node ${localNodeId.toHex().take(8)} • ${nearbyPeers.size} PEERS ACTIVE"
+                }
+                val networkStatusColor = when {
+                    !meshStatus.isAdvertising && !meshStatus.isScanning -> AstraCrimson
+                    nearbyPeers.isEmpty() -> AstraAmber
+                    else -> AstraEmerald
+                }
                 Text(
-                    text = "Node ${localNodeId.toHex().take(8)} • ${nearbyPeers.size} Peers in Mesh",
+                    text = networkStatusText,
                     fontSize = 11.sp,
-                    color = AstraEmerald
+                    fontWeight = FontWeight.Bold,
+                    color = networkStatusColor
                 )
             }
 
@@ -230,7 +259,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         // -------------------------------------------------------------
-        // COMMUNICATION MODE SELECTOR (BROADCAST / DIRECT / EMERGENCY)
+        // 2. TACTICAL COMMUNICATION MODE SELECTOR (BROADCAST / DIRECT / EMERGENCY)
         // -------------------------------------------------------------
         Row(
             modifier = Modifier
@@ -293,10 +322,10 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // -------------------------------------------------------------
-        // ACTIVE MODE & TARGET CARD
+        // 3. TARGET CHANNEL & PEER SELECTOR BAR
         // -------------------------------------------------------------
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -307,103 +336,159 @@ fun HomeScreen(
                     CommunicationMode.DIRECT -> AstraSurface
                 }
             ),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(10.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(modifier = Modifier.padding(10.dp)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (communicationMode) {
-                                    CommunicationMode.EMERGENCY -> AstraCrimson.copy(alpha = 0.3f)
-                                    CommunicationMode.BROADCAST -> AstraCyan.copy(alpha = 0.2f)
-                                    CommunicationMode.DIRECT -> AstraCyan.copy(alpha = 0.2f)
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        val cardIcon = when (communicationMode) {
-                            CommunicationMode.EMERGENCY -> Icons.Default.Emergency
-                            CommunicationMode.BROADCAST -> Icons.Default.Podcasts
-                            CommunicationMode.DIRECT -> Icons.Default.Person
-                        }
-                        val tint = when (communicationMode) {
-                            CommunicationMode.EMERGENCY -> AstraCrimson
-                            CommunicationMode.BROADCAST -> AstraCyan
-                            CommunicationMode.DIRECT -> AstraCyan
-                        }
-                        Icon(cardIcon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        val title = when (communicationMode) {
-                            CommunicationMode.BROADCAST -> "ALL REACHABLE MESH"
-                            CommunicationMode.DIRECT -> selectedDirectPeer?.displayName ?: nearbyPeers.firstOrNull()?.displayName ?: "No Peer Selected"
-                            CommunicationMode.EMERGENCY -> "EMERGENCY DISTRESS BEACON"
-                        }
-                        val subtitle = when (communicationMode) {
-                            CommunicationMode.BROADCAST -> "Broadcasting to all nodes in range (0 Hops Flood)"
-                            CommunicationMode.DIRECT -> {
-                                if (activeRecipientId.isBroadcast) "Select a peer from Contacts for P2P" else "P2P Node ${activeRecipientId.toHex().take(8)}"
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when (communicationMode) {
+                                        CommunicationMode.EMERGENCY -> AstraCrimson.copy(alpha = 0.3f)
+                                        CommunicationMode.BROADCAST -> AstraCyan.copy(alpha = 0.2f)
+                                        CommunicationMode.DIRECT -> AstraCyan.copy(alpha = 0.2f)
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val cardIcon = when (communicationMode) {
+                                CommunicationMode.EMERGENCY -> Icons.Default.Emergency
+                                CommunicationMode.BROADCAST -> Icons.Default.Podcasts
+                                CommunicationMode.DIRECT -> Icons.Default.Person
                             }
-                            CommunicationMode.EMERGENCY -> "High-Priority Mesh Flood (TTL 15) • Overrides DND"
-                        }
-                        Text(
-                            text = title,
-                            color = AstraTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = subtitle,
-                            color = when (communicationMode) {
+                            val tint = when (communicationMode) {
                                 CommunicationMode.EMERGENCY -> AstraCrimson
-                                else -> AstraEmerald
-                            },
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                                CommunicationMode.BROADCAST -> AstraCyan
+                                CommunicationMode.DIRECT -> AstraCyan
+                            }
+                            Icon(cardIcon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            val title = when (communicationMode) {
+                                CommunicationMode.BROADCAST -> "ALL REACHABLE MESH (FLOOD)"
+                                CommunicationMode.DIRECT -> selectedDirectPeer?.displayName ?: nearbyPeers.firstOrNull()?.displayName ?: "No Peer Selected"
+                                CommunicationMode.EMERGENCY -> "EMERGENCY DISTRESS BEACON"
+                            }
+                            val subtitle = when (communicationMode) {
+                                CommunicationMode.BROADCAST -> "0 Hops Broadcast • Automatic Multi-Hop Relay"
+                                CommunicationMode.DIRECT -> {
+                                    if (activeRecipientId.isBroadcast) "Select a peer node below for P2P link" else "P2P Node ${activeRecipientId.toHex().take(8)} • Direct Route"
+                                }
+                                CommunicationMode.EMERGENCY -> "High-Priority Mesh Flood (TTL 15) • Overrides DND"
+                            }
+                            Text(
+                                text = title,
+                                color = AstraTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = subtitle,
+                                color = when (communicationMode) {
+                                    CommunicationMode.EMERGENCY -> AstraCrimson
+                                    else -> AstraEmerald
+                                },
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    if (communicationMode == CommunicationMode.DIRECT) {
+                        OutlinedButton(
+                            onClick = onNavigateToContacts,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCyan)
+                        ) {
+                            Text("Directory", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (communicationMode == CommunicationMode.EMERGENCY) {
+                        OutlinedButton(
+                            onClick = onNavigateToEmergency,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCrimson)
+                        ) {
+                            Text("SOS Panel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
-                if (communicationMode == CommunicationMode.DIRECT) {
-                    OutlinedButton(
-                        onClick = onNavigateToContacts,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCyan)
+                // If in DIRECT mode and nearby peers exist, show a quick peer selector strip
+                if (communicationMode == CommunicationMode.DIRECT && nearbyPeers.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Active Mesh Peers in Range:",
+                        fontSize = 10.sp,
+                        color = AstraTextSecondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Switch", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                } else if (communicationMode == CommunicationMode.EMERGENCY) {
-                    OutlinedButton(
-                        onClick = onNavigateToEmergency,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCrimson)
-                    ) {
-                        Text("SOS Screen", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        items(nearbyPeers) { peer ->
+                            val isPeerSelected = selectedDirectPeer?.nodeId == peer.nodeId ||
+                                    (selectedDirectPeer == null && nearbyPeers.firstOrNull()?.nodeId == peer.nodeId)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isPeerSelected) AstraCyan.copy(alpha = 0.3f) else AstraSurfaceVariant)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isPeerSelected) AstraCyan else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { selectedDirectPeer = peer }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(if (peer.rssi > -75) AstraEmerald else AstraAmber)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = peer.displayName ?: "Node-${peer.nodeId.toHex().take(6)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isPeerSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isPeerSelected) AstraCyan else AstraTextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${peer.rssi}dBm",
+                                        fontSize = 9.sp,
+                                        color = AstraTextSecondary,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // -------------------------------------------------------------
-        // MAIN PUSH-TO-TALK WALKIE-TALKIE BUTTON
+        // 4. MAIN PUSH-TO-TALK TACTICAL TRANSCEIVER
         // -------------------------------------------------------------
         Box(
             modifier = Modifier
@@ -414,9 +499,9 @@ fun HomeScreen(
             val infiniteTransition = rememberInfiniteTransition(label = "pulse")
             val pulseScale by infiniteTransition.animateFloat(
                 initialValue = 1f,
-                targetValue = if (isRecording) 1.15f else 1.03f,
+                targetValue = if (pttState == PttState.RECORDING) 1.15f else 1.03f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(if (isRecording) 500 else 1200, easing = FastOutSlowInEasing),
+                    animation = tween(if (pttState == PttState.RECORDING) 500 else 1200, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "scale"
@@ -426,15 +511,16 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Waveform indicator during speech
-                if (isRecording) {
-                    HomeWaveform(rms = liveRms)
-                    Spacer(modifier = Modifier.height(8.dp))
+                // Waveform & Realtime Audio VU-Meter during speech
+                if (pttState == PttState.RECORDING) {
+                    TacticalWaveform(rms = liveRms)
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Transmitting: 00:%02d".format(recordingDurationSec),
+                        text = "TRANSMITTING: 00:%02d".format(recordingDurationSec),
                         color = if (communicationMode == CommunicationMode.EMERGENCY) AstraCrimson else AstraCyan,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp
                     )
                     if (liveTranscript.isNotBlank()) {
                         Text(
@@ -442,18 +528,30 @@ fun HomeScreen(
                             color = AstraTextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 24.dp),
+                            modifier = Modifier.padding(horizontal = 20.dp),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                } else if (pttState == PttState.TRANSMITTING) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Sync, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ENCODING & DISPATCHING TO MESH...",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // Push To Talk Circular Touch Target
                 val buttonBrush = when {
-                    isRecording && communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.6f)))
-                    isRecording -> Brush.radialGradient(listOf(AstraCyan, AstraEmerald))
+                    pttState == PttState.RECORDING && communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.6f)))
+                    pttState == PttState.RECORDING -> Brush.radialGradient(listOf(AstraCyan, AstraEmerald))
                     communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraSurfaceVariant))
                     communicationMode == CommunicationMode.DIRECT -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
                     else -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
@@ -468,7 +566,7 @@ fun HomeScreen(
                         .pointerInput(communicationMode, selectedDirectPeer, selectedLanguage) {
                             detectTapGestures(
                                 onPress = {
-                                    isRecording = true
+                                    pttState = PttState.RECORDING
                                     recordingDurationSec = 0
                                     liveRms = 0
                                     liveTranscript = ""
@@ -476,7 +574,7 @@ fun HomeScreen(
 
                                     timerJob?.cancel()
                                     timerJob = scope.launch {
-                                        while (isActive && isRecording) {
+                                        while (isActive && pttState == PttState.RECORDING) {
                                             delay(1000)
                                             recordingDurationSec += 1
                                         }
@@ -495,7 +593,7 @@ fun HomeScreen(
                                     tryAwaitRelease()
 
                                     // RELEASE TO SEND
-                                    isRecording = false
+                                    pttState = PttState.TRANSMITTING
                                     liveRms = 0
                                     val duration = recordingDurationSec
                                     timerJob?.cancel()
@@ -527,6 +625,8 @@ fun HomeScreen(
                                                 language = selectedLanguage
                                             )
                                         }
+                                        delay(300)
+                                        pttState = PttState.IDLE
                                     }
                                 }
                             )
@@ -542,12 +642,12 @@ fun HomeScreen(
                         Icon(
                             icon,
                             contentDescription = "PTT",
-                            tint = if (isRecording) Color.White else AstraTextPrimary,
+                            tint = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
                             modifier = Modifier.size(46.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         val mainLabel = when {
-                            isRecording -> "RELEASE TO SEND"
+                            pttState == PttState.RECORDING -> "RELEASE TO TRANSMIT"
                             communicationMode == CommunicationMode.BROADCAST -> "HOLD TO BROADCAST"
                             communicationMode == CommunicationMode.DIRECT -> "HOLD TO TALK DIRECT"
                             communicationMode == CommunicationMode.EMERGENCY -> "HOLD FOR SOS"
@@ -555,20 +655,20 @@ fun HomeScreen(
                         }
                         Text(
                             text = mainLabel,
-                            color = if (isRecording) Color.White else AstraTextPrimary,
-                            fontSize = 12.sp,
+                            color = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Black
                         )
                         Text(
                             text = selectedLanguage.nativeName,
-                            color = if (isRecording) Color.White.copy(alpha = 0.85f) else AstraCyan,
+                            color = if (pttState == PttState.RECORDING) Color.White.copy(alpha = 0.85f) else AstraCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 val footerText = when (communicationMode) {
                     CommunicationMode.BROADCAST -> "Auto-relayed & translated on all reachable devices"
                     CommunicationMode.DIRECT -> "Direct end-to-end P2P mesh voice transmission"
@@ -583,7 +683,7 @@ fun HomeScreen(
         }
 
         // -------------------------------------------------------------
-        // MESH & RELAY NETWORK METRICS BAR
+        // 5. MESH & RELAY NETWORK METRICS BAR
         // -------------------------------------------------------------
         Row(
             modifier = Modifier
@@ -601,7 +701,12 @@ fun HomeScreen(
                 fontFamily = FontFamily.Monospace
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (meshStatus.isAdvertising) AstraEmerald else AstraCrimson))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(if (meshStatus.isAdvertising) AstraEmerald else AstraCrimson)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = if (meshStatus.isAdvertising) "BLE MESH ON" else "MESH OFF",
@@ -612,17 +717,17 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // -------------------------------------------------------------
-        // RECENT TRANSMISSIONS FEED WITH INSTANT REPLAY
+        // 6. SECTOR TRANSMISSIONS & RELAY FEED WITH INSTANT REPLAY
         // -------------------------------------------------------------
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(150.dp),
+                .height(155.dp),
             colors = CardDefaults.cardColors(containerColor = AstraSurface),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(10.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Row(
@@ -630,44 +735,47 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = when (communicationMode) {
-                            CommunicationMode.BROADCAST -> "Recent Broadcasts"
-                            CommunicationMode.DIRECT -> "Direct Transmissions"
-                            CommunicationMode.EMERGENCY -> "Emergency Distress Feed"
-                        },
-                        color = when (communicationMode) {
-                            CommunicationMode.EMERGENCY -> AstraCrimson
-                            else -> AstraCyan
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = when (communicationMode) {
+                                CommunicationMode.BROADCAST -> "SECTOR BROADCAST LOG"
+                                CommunicationMode.DIRECT -> "DIRECT P2P LOG"
+                                CommunicationMode.EMERGENCY -> "EMERGENCY DISTRESS FEED"
+                            },
+                            color = when (communicationMode) {
+                                CommunicationMode.EMERGENCY -> AstraCrimson
+                                else -> AstraCyan
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
                     Text(
                         text = "Tap ▶ to replay",
                         color = AstraTextSecondary,
                         fontSize = 10.sp
                     )
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (messages.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(8.dp),
+                            .padding(6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No transmissions yet in ${communicationMode.displayName} mode.",
+                            text = "No transmissions logged on ${communicationMode.displayName} channel.",
                             color = AstraTextSecondary,
-                            fontSize = 12.sp
+                            fontSize = 11.sp
                         )
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(messages.takeLast(4).reversed()) { msg ->
-                            RecentMessageItem(
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(messages.takeLast(6).reversed()) { msg ->
+                            TacticalMessageLogItem(
                                 message = msg,
                                 localNodeId = localNodeId,
                                 onReplay = {
@@ -675,7 +783,7 @@ fun HomeScreen(
                                     voiceEngineManager?.speakText(
                                         text = cleanText,
                                         language = selectedLanguage,
-                                        isEmergency = msg.priority == com.astramesh.domain.model.MessagePriority.EMERGENCY
+                                        isEmergency = msg.priority == MessagePriority.EMERGENCY
                                     )
                                 }
                             )
@@ -688,7 +796,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun RecentMessageItem(
+fun TacticalMessageLogItem(
     message: Message,
     localNodeId: NodeId,
     onReplay: () -> Unit
@@ -699,7 +807,7 @@ fun RecentMessageItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(if (isFromMe) AstraCyan.copy(alpha = 0.1f) else AstraSurfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -709,42 +817,80 @@ fun RecentMessageItem(
         ) {
             IconButton(
                 onClick = onReplay,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(26.dp)
             ) {
                 Icon(
                     Icons.Default.PlayArrow,
                     contentDescription = "Play",
-                    tint = if (message.priority == com.astramesh.domain.model.MessagePriority.EMERGENCY) AstraCrimson else AstraCyan,
-                    modifier = Modifier.size(18.dp)
+                    tint = if (message.priority == MessagePriority.EMERGENCY) AstraCrimson else AstraCyan,
+                    modifier = Modifier.size(16.dp)
                 )
             }
             Spacer(modifier = Modifier.width(4.dp))
             Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val directionTag = if (isFromMe) "TX" else "RX"
+                    val tagColor = if (isFromMe) AstraCyan else AstraEmerald
+                    Text(
+                        text = "[$directionTag]",
+                        color = tagColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = message.content,
+                        color = AstraTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                val hopText = if (message.hopCount == 0) "Direct Link" else "${message.hopCount} Hops Relayed"
+                val subtitle = if (isFromMe) "Outgoing • $hopText" else "Node ${message.senderId.toHex().take(8)} • $hopText"
                 Text(
-                    text = message.content,
-                    color = AstraTextPrimary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (isFromMe) "Outgoing • Reconstructed" else "From Node ${message.senderId.toHex().take(8)} • Translated",
+                    text = subtitle,
                     color = AstraTextSecondary,
                     fontSize = 9.sp
                 )
             }
         }
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-        Text(
-            text = timeFormat.format(Date(message.timestamp)),
-            color = AstraTextSecondary,
-            fontSize = 10.sp
-        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            Text(
+                text = timeFormat.format(Date(message.timestamp)),
+                color = AstraTextSecondary,
+                fontSize = 10.sp
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            if (isFromMe) {
+                when (message.status) {
+                    MessageStatus.QUEUED, MessageStatus.TRANSMITTING -> {
+                        Text("...", color = AstraAmber, fontSize = 9.sp)
+                    }
+                    MessageStatus.SENT -> {
+                        Icon(Icons.Default.Check, contentDescription = "Sent", tint = AstraTextSecondary, modifier = Modifier.size(11.dp))
+                    }
+                    MessageStatus.RELAYED -> {
+                        Icon(Icons.Default.Sync, contentDescription = "Relayed", tint = AstraCyan, modifier = Modifier.size(11.dp))
+                    }
+                    MessageStatus.DELIVERED, MessageStatus.READ -> {
+                        Icon(Icons.Default.DoneAll, contentDescription = "Delivered", tint = AstraEmerald, modifier = Modifier.size(12.dp))
+                    }
+                    MessageStatus.FAILED -> {
+                        Text("!", color = AstraCrimson, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun HomeWaveform(rms: Int) {
+fun TacticalWaveform(rms: Int) {
     val normalized = (rms / 300).coerceIn(1, 14)
     Row(
         modifier = Modifier

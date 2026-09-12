@@ -76,22 +76,48 @@ fun SettingsScreen(
     val trustStatus by viewModel.trustStatus.collectAsState()
     val meshStatus by viewModel.meshStatus.collectAsState()
 
-    Scaffold(
-        topBar = {
-            AstraTopBar(
-                title = "Settings & Identity",
-                connectedPeersCount = meshStatus.activeConnectionsCount
-            )
-        },
-        containerColor = AstraBackground
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AstraBackground)
+            .padding(14.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // -------------------------------------------------------------
+        // CONSISTENT TOP TACTICAL TELEMETRY HEADER
+        // -------------------------------------------------------------
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(AstraCyan)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "iTANTRA SETTINGS",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black,
+                        color = AstraTextPrimary,
+                        letterSpacing = 1.sp
+                    )
+                }
+                Text(
+                    text = "Node ${permanentId?.toHex()?.take(8) ?: "OFFLINE"} • CONFIG & IDENTITY",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AstraCyan
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
             // Cryptographic Identity Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -299,7 +325,7 @@ fun SettingsScreen(
             }
         }
     }
-}
+
 
 @Composable
 fun MetricRow(label: String, value: String) {

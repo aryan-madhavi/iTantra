@@ -104,7 +104,7 @@ fun EmergencyScreen(
     messageRepository: MessageRepository,
     meshRepository: MeshRepository? = null,
     voiceEngineManager: VoiceEngineManager?,
-    onBackClicked: () -> Unit
+    onBackClicked: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var currentStage by remember { mutableStateOf(EmergencyBroadcastStage.READY) }
@@ -177,41 +177,51 @@ fun EmergencyScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AstraBackground)
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
-        // Top Header
+        // -------------------------------------------------------------
+        // CONSISTENT TOP TACTICAL TELEMETRY HEADER
+        // -------------------------------------------------------------
         Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBackClicked) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = AstraTextPrimary)
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(AstraCrimson)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "iTANTRA SOS BEACON",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black,
+                        color = AstraTextPrimary,
+                        letterSpacing = 1.sp
+                    )
+                }
                 Text(
-                    text = "TWO-STAGE SOS BEACON",
-                    color = AstraCrimson,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp
-                )
-                Text(
-                    text = "MAXIMUM PRIORITY MESH FLOODING",
-                    color = AstraTextSecondary,
-                    fontSize = 11.sp
+                    text = "Node ${localNodeId.toHex().take(8)} • MAXIMUM PRIORITY FLOOD",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AstraCrimson
                 )
             }
 
             // Language Selector Chip & Dropdown
             Box {
-                FilterChip(
-                    selected = true,
+                androidx.compose.material3.AssistChip(
                     onClick = { languageDropdownExpanded = true },
                     label = { Text(selectedLanguage.nativeName, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                    colors = FilterChipDefaults.filterChipColors(
+                    leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                    colors = androidx.compose.material3.AssistChipDefaults.assistChipColors(
                         containerColor = AstraSurfaceVariant,
-                        labelColor = AstraCyan
+                        labelColor = AstraCrimson,
+                        leadingIconContentColor = AstraCrimson
                     )
                 )
 
