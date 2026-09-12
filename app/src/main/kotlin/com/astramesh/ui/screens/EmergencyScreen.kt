@@ -1,5 +1,6 @@
 package com.astramesh.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -25,7 +26,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Emergency
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -39,10 +44,14 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,7 +71,6 @@ import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
 import com.astramesh.domain.model.Message
-import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.repository.MeshRepository
 import com.astramesh.domain.repository.MessageRepository
 import com.astramesh.domain.usecase.EmergencyBroadcastUseCase
@@ -83,6 +91,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class EmergencyBroadcastStage {
+    READY,
+    STAGE2_VOICE_RECORDING,
+    BROADCAST_COMPLETED
+}
+
 @Composable
 fun EmergencyScreen(
     localNodeId: NodeId,
@@ -93,12 +107,18 @@ fun EmergencyScreen(
     onBackClicked: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    var currentStage by remember { mutableStateOf(EmergencyBroadcastStage.READY) }
     var isHoldingSos by remember { mutableStateOf(false) }
-    var holdProgress by remember { mutableStateOf(0f) }
+    var holdProgress by remember { mutableFloatStateOf(0f) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
+    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+    var recordingCountdown by remember { mutableIntStateOf(10) }
+
     var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
     var languageDropdownExpanded by remember { mutableStateOf(false) }
-    var lastBroadcastStatus by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var liveTranscript by remember { mutableStateOf("") }
+    var liveRms by remember { mutableIntStateOf(0) }
 
     val emergencyMessages by messageRepository.observeMessages(com.astramesh.core.ChatId("chat_emergency_broadcast"))
         .collectAsState(initial = emptyList())
@@ -113,6 +133,45 @@ fun EmergencyScreen(
         ),
         label = "sos_scale"
     )
+
+    val recordingPulse by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "recording_scale"
+    )
+
+    // Helper to complete Stage 2 and broadcast briefing
+    fun transmitVoiceBriefing() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+
+        scope.launch {
+            statusMessage = "Transcribing & transmitting voice briefing..."
+            val finalTranscript = voiceEngineManager?.stopSttAndAwaitResult() ?: liveTranscript
+            val textToSend = if (finalTranscript.isNotBlank()) finalTranscript else selectedLanguage.getDefaultEmergencyText()
+
+            AstraLog.d("EmergencyScreen", "Stage 2 Voice Briefing: '$textToSend'")
+            emergencyBroadcastUseCase.sendVoiceBriefing(
+                transcript = textToSend,
+                language = selectedLanguage
+            )
+
+            currentStage = EmergencyBroadcastStage.BROADCAST_COMPLETED
+            statusMessage = "EMERGENCY BROADCAST ACTIVE: Beacon & Briefing Relayed Across Mesh!"
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            holdJob?.cancel()
+            recordingTimerJob?.cancel()
+            voiceEngineManager?.stopStt()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -131,14 +190,14 @@ fun EmergencyScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "EMERGENCY BEACON",
+                    text = "TWO-STAGE SOS BEACON",
                     color = AstraCrimson,
-                    fontSize = 20.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "HIGH-PRIORITY MESH FLOODING",
+                    text = "MAXIMUM PRIORITY MESH FLOODING",
                     color = AstraTextSecondary,
                     fontSize = 11.sp
                 )
@@ -176,7 +235,7 @@ fun EmergencyScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Warning Banner
         Card(
@@ -188,10 +247,10 @@ fun EmergencyScreen(
                 modifier = Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(androidx.compose.material.icons.Icons.Default.Warning, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.Warning, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Distress alerts override DND, gain exclusive audio focus, and trigger siren + vibration on all listening devices in mesh range.",
+                    text = "Stage 1 immediately floods SOS beacon without delay. Stage 2 automatically records, transcribes, and broadcasts your voice briefing.",
                     color = AstraTextPrimary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -199,139 +258,322 @@ fun EmergencyScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Center Big Hold-To-Confirm SOS Trigger
+        // Center Action Area based on current Stage
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
             contentAlignment = Alignment.Center
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "ARE YOU IN IMMEDIATE DANGER?",
-                    color = AstraTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (isHoldingSos) "Keep holding to broadcast..." else "Hold for 2 seconds to broadcast SOS",
-                    color = if (isHoldingSos) AstraCrimson else AstraTextSecondary,
-                    fontSize = 12.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Box(
-                    modifier = Modifier
-                        .size(170.dp)
-                        .scale(if (isHoldingSos) 1.15f else pulseScale)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.5f))
-                            )
+            when (currentStage) {
+                EmergencyBroadcastStage.READY -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "ARE YOU IN IMMEDIATE DANGER?",
+                            color = AstraTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onPress = {
-                                    isHoldingSos = true
-                                    holdProgress = 0f
-                                    holdJob?.cancel()
-                                    holdJob = scope.launch {
-                                        val totalMs = 2000L
-                                        val stepMs = 50L
-                                        var elapsed = 0L
-                                        while (isActive && elapsed < totalMs) {
-                                            delay(stepMs)
-                                            elapsed += stepMs
-                                            holdProgress = (elapsed.toFloat() / totalMs).coerceIn(0f, 1f)
-                                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (isHoldingSos) "Keep holding for Stage 1 Instant Beacon..." else "Hold for 2 seconds to activate 2-Stage SOS",
+                            color = if (isHoldingSos) AstraCrimson else AstraTextSecondary,
+                            fontSize = 12.sp
+                        )
 
-                                        if (isActive && holdProgress >= 1f) {
-                                            AstraLog.d("EmergencyScreen", "SOS Triggered! Broadcasting distress signal in ${selectedLanguage.englishName}...")
-                                            lastBroadcastStatus = "Broadcasting Emergency SOS..."
-                                            val alertText = selectedLanguage.getDefaultEmergencyText()
-                                            emergencyBroadcastUseCase(
-                                                alertMessage = alertText,
-                                                language = selectedLanguage
-                                            )
-                                            lastBroadcastStatus = "Emergency SOS Broadcast Dispatched!"
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .size(170.dp)
+                                .scale(if (isHoldingSos) 1.15f else pulseScale)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.5f))
+                                    )
+                                )
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            isHoldingSos = true
+                                            holdProgress = 0f
+                                            holdJob?.cancel()
+                                            holdJob = scope.launch {
+                                                val totalMs = 2000L
+                                                val stepMs = 50L
+                                                var elapsed = 0L
+                                                while (isActive && elapsed < totalMs) {
+                                                    delay(stepMs)
+                                                    elapsed += stepMs
+                                                    holdProgress = (elapsed.toFloat() / totalMs).coerceIn(0f, 1f)
+                                                }
+
+                                                if (isActive && holdProgress >= 1f) {
+                                                    AstraLog.d("EmergencyScreen", "Stage 1: Dispatching Immediate SOS Beacon in ${selectedLanguage.englishName}...")
+                                                    statusMessage = "STAGE 1: Immediate SOS Beacon Dispatched to Mesh!"
+                                                    isHoldingSos = false
+                                                    holdProgress = 0f
+
+                                                    // -------------------------------------------------------------
+                                                    // STAGE 1: IMMEDIATE DISTRESS PACKET (NO MIC / NO STT WAIT)
+                                                    // -------------------------------------------------------------
+                                                    emergencyBroadcastUseCase.sendImmediateSosBeacon(
+                                                        language = selectedLanguage
+                                                    )
+
+                                                    // -------------------------------------------------------------
+                                                    // STAGE 2: AUTOMATIC VOICE BRIEFING CAPTURE
+                                                    // -------------------------------------------------------------
+                                                    currentStage = EmergencyBroadcastStage.STAGE2_VOICE_RECORDING
+                                                    liveTranscript = ""
+                                                    recordingCountdown = 10
+
+                                                    voiceEngineManager?.startStt(
+                                                        language = selectedLanguage,
+                                                        onRmsChanged = { rms -> liveRms = rms },
+                                                        onResult = { transcript -> liveTranscript = transcript }
+                                                    )
+
+                                                    recordingTimerJob?.cancel()
+                                                    recordingTimerJob = scope.launch {
+                                                        while (isActive && recordingCountdown > 0) {
+                                                            delay(1000L)
+                                                            recordingCountdown--
+                                                        }
+                                                        if (isActive && currentStage == EmergencyBroadcastStage.STAGE2_VOICE_RECORDING) {
+                                                            transmitVoiceBriefing()
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            tryAwaitRelease()
+
+                                            // Released early
                                             isHoldingSos = false
                                             holdProgress = 0f
+                                            holdJob?.cancel()
+                                            holdJob = null
                                         }
-                                    }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.Emergency,
+                                    contentDescription = "SOS",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(54.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "HOLD SOS",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
 
-                                    tryAwaitRelease()
-
-                                    // Released early
-                                    isHoldingSos = false
-                                    holdProgress = 0f
-                                    holdJob?.cancel()
-                                    holdJob = null
-                                }
+                        if (isHoldingSos) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            LinearProgressIndicator(
+                                progress = { holdProgress },
+                                modifier = Modifier
+                                    .width(180.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = AstraCrimson,
+                                trackColor = AstraSurfaceVariant
                             )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Emergency,
-                            contentDescription = "SOS",
-                            tint = Color.White,
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "HOLD SOS",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black
-                        )
+                        }
                     }
                 }
 
-                if (isHoldingSos) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    LinearProgressIndicator(
-                        progress = { holdProgress },
+                EmergencyBroadcastStage.STAGE2_VOICE_RECORDING -> {
+                    Column(
                         modifier = Modifier
-                            .width(180.dp)
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = AstraCrimson,
-                        trackColor = AstraSurfaceVariant
-                    )
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "STAGE 2: RECORDING VOICE BRIEFING",
+                            color = AstraCrimson,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Speak your situation, location, and needs.\nAuto-transmitting in ${recordingCountdown}s...",
+                            color = AstraTextSecondary,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Pulsing Mic recording indicator
+                        Box(
+                            modifier = Modifier
+                                .size(110.dp)
+                                .scale(recordingPulse)
+                                .clip(CircleShape)
+                                .background(AstraCrimson)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Recording Briefing",
+                                tint = Color.White,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Live Transcription Display Card
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(90.dp),
+                            colors = CardDefaults.cardColors(containerColor = AstraSurface),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (liveTranscript.isNotBlank()) "\"$liveTranscript\"" else "Listening... (Speak into microphone)",
+                                    color = if (liveTranscript.isNotBlank()) AstraCyan else AstraTextSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = { transmitVoiceBriefing() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("TRANSMIT NOW", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
 
-                lastBroadcastStatus?.let { status ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = status,
-                        color = AstraEmerald,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                EmergencyBroadcastStage.BROADCAST_COMPLETED -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = "Active",
+                            tint = AstraEmerald,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "TWO-STAGE SOS ACTIVE",
+                            color = AstraEmerald,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Stage 1 Beacon and Stage 2 Voice Briefing have been broadcasted across the mesh network with maximum TTL.",
+                            color = AstraTextSecondary,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    currentStage = EmergencyBroadcastStage.STAGE2_VOICE_RECORDING
+                                    liveTranscript = ""
+                                    recordingCountdown = 10
+                                    voiceEngineManager?.startStt(
+                                        language = selectedLanguage,
+                                        onRmsChanged = { rms -> liveRms = rms },
+                                        onResult = { transcript -> liveTranscript = transcript }
+                                    )
+                                    recordingTimerJob?.cancel()
+                                    recordingTimerJob = scope.launch {
+                                        while (isActive && recordingCountdown > 0) {
+                                            delay(1000L)
+                                            recordingCountdown--
+                                        }
+                                        if (isActive && currentStage == EmergencyBroadcastStage.STAGE2_VOICE_RECORDING) {
+                                            transmitVoiceBriefing()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Update Briefing")
+                            }
+
+                            Button(
+                                onClick = { currentStage = EmergencyBroadcastStage.READY },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = AstraSurfaceVariant),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Dismiss", color = AstraTextPrimary)
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Recent Distress Broadcasts
+        // Recent Distress Broadcasts Log Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(150.dp),
+                .height(140.dp),
             colors = CardDefaults.cardColors(containerColor = AstraSurface),
             shape = RoundedCornerShape(10.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
-                    text = "Distress Broadcasts Log",
+                    text = "Sector Distress Broadcasts Log",
                     color = AstraCrimson,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold

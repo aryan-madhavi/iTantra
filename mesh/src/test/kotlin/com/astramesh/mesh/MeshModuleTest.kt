@@ -160,4 +160,187 @@ class MeshModuleTest {
         assertThat(ackSuccess).isTrue()
         assertThat(manager.pendingCount()).isEqualTo(0)
     }
+
+    @Test
+    fun `multi-hop relay pipeline phone A to phone B to phone C for unicast direct message`() {
+        // Node A, Node B, Node C topology: A <-> B <-> C (A cannot reach C directly)
+        val cacheA = DuplicateDetectionCache()
+        val cacheB = DuplicateDetectionCache()
+        val cacheC = DuplicateDetectionCache()
+
+        val tableA = RoutingTable(nodeA)
+        val tableB = RoutingTable(nodeB)
+        val tableC = RoutingTable(nodeC)
+
+        // Node B has route to Node C
+        tableB.updateRoute(destination = nodeC, nextHop = nodeC, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
+        // Node C has route to Node B
+        tableC.updateRoute(destination = nodeB, nextHop = nodeB, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
+
+        val forwarderB = MessageForwarder(localNodeId = nodeB, deduplicationCache = cacheB, routingTable = tableB)
+        val forwarderC = MessageForwarder(localNodeId = nodeC, deduplicationCache = cacheC, routingTable = tableC)
+
+        // Step 1: Phone A generates packet for Phone C
+        val originalPacket = AstraPacket(
+            type = AstraPacketType.DATA_UNICAST,
+            flags = AstraPacketFlags(relayAllowed = true, requiresAck = true),
+            ttl = 5,
+            hopCount = 0,
+            sequenceNumber = 100L,
+            packetId = PacketId(5001L),
+            source = nodeA,
+            destination = nodeC,
+            visitedBloomFilter = 0,
+            payload = "Hello from Phone A to Phone C via Relay B".toByteArray(Charsets.UTF_8)
+        )
+
+        // Step 2: Phone B receives packet from Phone A
+        // Phone B performs opportunistic reverse route learning to Phone A
+        tableB.updateRoute(destination = originalPacket.source, nextHop = nodeA, cost = 1.0f, hopCount = 1, sequenceNumber = originalPacket.sequenceNumber)
+        val decisionB = forwarderB.processPacket(originalPacket, receivedFromNodeId = nodeA)
+
+        assertThat(decisionB).isInstanceOf(ForwardingDecision.ForwardUnicast::class.java)
+        val relayedPacket = (decisionB as ForwardingDecision.ForwardUnicast).packet
+        assertThat(decisionB.nextHop).isEqualTo(nodeC)
+        assertThat(relayedPacket.ttl).isEqualTo(4)
+        assertThat(relayedPacket.hopCount).isEqualTo(1)
+        assertThat(relayedPacket.source).isEqualTo(nodeA)
+        assertThat(relayedPacket.destination).isEqualTo(nodeC)
+
+        // Step 3: Phone C receives forwarded packet from Phone B
+        // Phone C performs reverse route learning to Phone A via nextHop = Phone B
+        tableC.updateRoute(destination = relayedPacket.source, nextHop = nodeB, cost = 2.0f, hopCount = 2, sequenceNumber = relayedPacket.sequenceNumber)
+        val decisionC = forwarderC.processPacket(relayedPacket, receivedFromNodeId = nodeB)
+
+        assertThat(decisionC).isInstanceOf(ForwardingDecision.ConsumeLocally::class.java)
+        val consumedPacket = (decisionC as ForwardingDecision.ConsumeLocally).packet
+        assertThat(consumedPacket.packetId).isEqualTo(PacketId(5001L))
+        assertThat(consumedPacket.source).isEqualTo(nodeA)
+        assertThat(consumedPacket.destination).isEqualTo(nodeC)
+
+        // Verify Phone C now knows route back to Phone A via Node B!
+        val returnRoute = tableC.getRoute(nodeA)
+        assertThat(returnRoute).isNotNull()
+        assertThat(returnRoute?.nextHop).isEqualTo(nodeB)
+        assertThat(returnRoute?.hopCount).isEqualTo(2)
+    }
+
+    @Test
+    fun `multi-hop broadcast and emergency flooding propagates with TTL decrement`() {
+        val cacheB = DuplicateDetectionCache()
+        val cacheC = DuplicateDetectionCache()
+        val tableB = RoutingTable(nodeB)
+        val tableC = RoutingTable(nodeC)
+
+        val forwarderB = MessageForwarder(localNodeId = nodeB, deduplicationCache = cacheB, routingTable = tableB)
+        val forwarderC = MessageForwarder(localNodeId = nodeC, deduplicationCache = cacheC, routingTable = tableC)
+
+        val emergencyBroadcast = AstraPacket(
+            type = AstraPacketType.DATA_BROADCAST,
+            flags = AstraPacketFlags(isEmergency = true, relayAllowed = true),
+            ttl = 3,
+            hopCount = 0,
+            sequenceNumber = 1L,
+            packetId = PacketId(777L),
+            source = nodeA,
+            destination = NodeId.BROADCAST,
+            visitedBloomFilter = 0,
+            payload = "SOS EMERGENCY BROADCAST".toByteArray(Charsets.UTF_8)
+        )
+
+        // Hop 1: Node B receives from Node A
+        val decisionB = forwarderB.processPacket(emergencyBroadcast, nodeA)
+        assertThat(decisionB).isInstanceOf(ForwardingDecision.FloodBroadcast::class.java)
+        val packetFromB = (decisionB as ForwardingDecision.FloodBroadcast).packet
+        assertThat(packetFromB.ttl).isEqualTo(2)
+        assertThat(packetFromB.hopCount).isEqualTo(1)
+
+        // Hop 2: Node C receives from Node B
+        val decisionC = forwarderC.processPacket(packetFromB, nodeB)
+        assertThat(decisionC).isInstanceOf(ForwardingDecision.FloodBroadcast::class.java)
+        val packetFromC = (decisionC as ForwardingDecision.FloodBroadcast).packet
+        assertThat(packetFromC.ttl).isEqualTo(1)
+        assertThat(packetFromC.hopCount).isEqualTo(2)
+
+        // Duplicate arrival at Node B is dropped
+        val duplicateDecision = forwarderB.processPacket(emergencyBroadcast, nodeA)
+        assertThat(duplicateDecision).isInstanceOf(ForwardingDecision.Drop::class.java)
+    }
+
+    @Test
+    fun `duplicate packet suppression drops repeated packet id`() {
+        val cache = DuplicateDetectionCache()
+        val table = RoutingTable(nodeB)
+        val forwarder = MessageForwarder(nodeB, cache, table)
+
+        val packet = AstraPacket(
+            type = AstraPacketType.DATA_UNICAST,
+            flags = AstraPacketFlags(),
+            sequenceNumber = 1L,
+            packetId = PacketId(12345L),
+            source = nodeA,
+            destination = nodeB,
+            payload = "First arrival".toByteArray(Charsets.UTF_8)
+        )
+
+        val firstDecision = forwarder.processPacket(packet, nodeA)
+        assertThat(firstDecision).isInstanceOf(ForwardingDecision.ConsumeLocally::class.java)
+
+        val secondDecision = forwarder.processPacket(packet, nodeA)
+        assertThat(secondDecision).isInstanceOf(ForwardingDecision.Drop::class.java)
+        assertThat((secondDecision as ForwardingDecision.Drop).reason).contains("Duplicate")
+    }
+
+    @Test
+    fun `loop detection drops packet circulating back to visited node`() {
+        val cache = DuplicateDetectionCache()
+        val table = RoutingTable(nodeB)
+        val forwarder = MessageForwarder(nodeB, cache, table)
+
+        // Node B is already marked in visited Bloom filter
+        val bloomWithB = com.astramesh.routing.LoopDetector.addNode(0, nodeB)
+
+        val loopingPacket = AstraPacket(
+            type = AstraPacketType.DATA_UNICAST,
+            flags = AstraPacketFlags(relayAllowed = true),
+            ttl = 5,
+            hopCount = 2,
+            sequenceNumber = 1L,
+            packetId = PacketId(9999L),
+            source = nodeA,
+            destination = nodeC,
+            visitedBloomFilter = bloomWithB,
+            payload = "Looping packet".toByteArray(Charsets.UTF_8)
+        )
+
+        val decision = forwarder.processPacket(loopingPacket, nodeA)
+        assertThat(decision).isInstanceOf(ForwardingDecision.Drop::class.java)
+        assertThat((decision as ForwardingDecision.Drop).reason).contains("Loop detected")
+    }
+
+    @Test
+    fun `store and forward queue prioritizes emergency and handles expiration`() {
+        val queue = StoreAndForwardQueue(maxCapacity = 10, maxAttempts = 3)
+
+        // Enqueue bulk, direct, and emergency messages
+        queue.enqueue(nodeC, "Bulk 1".toByteArray(Charsets.UTF_8), MessagePriority.BULK)
+        queue.enqueue(nodeC, "Direct 1".toByteArray(Charsets.UTF_8), MessagePriority.DIRECT_MESSAGE)
+        queue.enqueue(nodeC, "Emergency SOS".toByteArray(Charsets.UTF_8), MessagePriority.EMERGENCY)
+
+        val polled = queue.pollForDestination(nodeC)
+        assertThat(polled).hasSize(3)
+        // Emergency must come first!
+        assertThat(polled[0].priority).isEqualTo(MessagePriority.EMERGENCY)
+        assertThat(polled[1].priority).isEqualTo(MessagePriority.DIRECT_MESSAGE)
+        assertThat(polled[2].priority).isEqualTo(MessagePriority.BULK)
+
+        // Test expiration pruning
+        val now = System.currentTimeMillis()
+        queue.enqueue(nodeC, "Expired message".toByteArray(Charsets.UTF_8), MessagePriority.BULK, ttlMillis = 100L)
+        assertThat(queue.size()).isEqualTo(1)
+
+        val pruned = queue.pruneExpired(now + 200L)
+        assertThat(pruned).isEqualTo(1)
+        assertThat(queue.size()).isEqualTo(0)
+    }
 }

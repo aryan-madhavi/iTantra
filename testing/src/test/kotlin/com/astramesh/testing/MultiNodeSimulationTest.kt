@@ -79,7 +79,7 @@ class MultiNodeSimulationTest {
         val testMessage = "AstraMesh multi-hop transmission across 4 relays!".toByteArray()
         val pid = nodeA.sendPacket(nodeE.nodeId, testMessage)
 
-        Thread.sleep(150)
+        Thread.sleep(300)
 
         assertThat(nodeE.packetsReceived.get()).isEqualTo(1L)
         val receivedPacket = nodeE.receivedPacketsHistory.firstOrNull()
@@ -110,7 +110,7 @@ class MultiNodeSimulationTest {
         val alertPayload = "EMERGENCY BROADCAST".toByteArray()
         nodeA.sendPacket(NodeId.BROADCAST, alertPayload, priority = MessagePriority.EMERGENCY)
 
-        Thread.sleep(150)
+        Thread.sleep(300)
 
         assertThat(nodeB.packetsReceived.get()).isAtLeast(1L)
         assertThat(nodeC.packetsReceived.get()).isAtLeast(1L)

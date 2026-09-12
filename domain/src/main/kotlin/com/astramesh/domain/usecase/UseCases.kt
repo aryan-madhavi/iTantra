@@ -236,21 +236,31 @@ class EmergencyBroadcastUseCase(
     private val chatRepository: ChatRepository,
     private val identityRepository: IdentityRepository
 ) {
-    suspend operator fun invoke(
-        alertMessage: String,
-        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
-    ): AstraResult<Unit> {
+    /**
+     * Stage 1: Immediate emergency distress beacon.
+     * Dispatches MessageType.SOS immediately with maximum TTL (15) and MessagePriority.EMERGENCY
+     * without waiting for microphone, STT, or translation.
+     */
+    suspend fun sendImmediateSosBeacon(
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI,
+        gpsLatitude: Float = 0.0f,
+        gpsLongitude: Float = 0.0f
+    ): AstraResult<Message> {
         val senderId = identityRepository.getRotatingNodeId()
         val emergencyChatId = ChatId("chat_emergency_broadcast")
         val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
+        val defaultAlertText = language.getDefaultEmergencyText()
+
         val ithantra = com.astramesh.core.IthantraMessage(
             senderId = senderId,
             messageType = com.astramesh.core.MessageType.SOS,
             language = language,
             sequenceNumber = seqNo,
             timestamp = System.currentTimeMillis(),
-            text = alertMessage,
-            hopTtl = 15
+            text = defaultAlertText,
+            hopTtl = 15,
+            gpsLatitude = gpsLatitude,
+            gpsLongitude = gpsLongitude
         )
 
         val message = Message(
@@ -259,7 +269,7 @@ class EmergencyBroadcastUseCase(
             senderId = senderId,
             recipientId = NodeId.BROADCAST,
             timestamp = System.currentTimeMillis(),
-            content = alertMessage,
+            content = "[SOS DISTRESS BEACON]: $defaultAlertText",
             contentType = MessageContentType.SYSTEM_ALERT,
             status = MessageStatus.SENT,
             priority = MessagePriority.EMERGENCY,
@@ -277,7 +287,72 @@ class EmergencyBroadcastUseCase(
         )
         chatRepository.insertOrUpdateChat(chat)
 
-        return meshRepository.sendPacket(NodeId.BROADCAST, ithantra.toBinary(), MessagePriority.EMERGENCY)
+        val sendResult = meshRepository.sendPacket(NodeId.BROADCAST, ithantra.toBinary(), MessagePriority.EMERGENCY)
+        return if (sendResult.isSuccess) AstraResult.Success(message) else AstraResult.Failure("Failed to dispatch SOS beacon")
+    }
+
+    /**
+     * Stage 2: Emergency voice briefing message.
+     * Dispatches recorded/transcribed briefing with MessageType.ALERT, maximum TTL (15), and MessagePriority.EMERGENCY.
+     */
+    suspend fun sendVoiceBriefing(
+        transcript: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI,
+        gpsLatitude: Float = 0.0f,
+        gpsLongitude: Float = 0.0f
+    ): AstraResult<Message> {
+        val senderId = identityRepository.getRotatingNodeId()
+        val emergencyChatId = ChatId("chat_emergency_broadcast")
+        val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
+        val text = transcript.trim().ifBlank { language.getDefaultEmergencyText() }
+
+        val ithantra = com.astramesh.core.IthantraMessage(
+            senderId = senderId,
+            messageType = com.astramesh.core.MessageType.ALERT,
+            language = language,
+            sequenceNumber = seqNo,
+            timestamp = System.currentTimeMillis(),
+            text = text,
+            hopTtl = 15,
+            gpsLatitude = gpsLatitude,
+            gpsLongitude = gpsLongitude
+        )
+
+        val snippet = "[Emergency Briefing]: $text"
+        val message = Message(
+            id = MessageId(UUID.randomUUID().toString()),
+            chatId = emergencyChatId,
+            senderId = senderId,
+            recipientId = NodeId.BROADCAST,
+            timestamp = System.currentTimeMillis(),
+            content = snippet,
+            contentType = MessageContentType.SYSTEM_ALERT,
+            status = MessageStatus.SENT,
+            priority = MessagePriority.EMERGENCY,
+            ttl = 15
+        )
+
+        messageRepository.insertMessage(message)
+        val chat = Chat(
+            id = emergencyChatId,
+            title = "EMERGENCY BROADCAST",
+            type = ChatType.EMERGENCY,
+            participantIds = listOf(senderId, NodeId.BROADCAST),
+            lastMessage = message,
+            updatedAt = message.timestamp
+        )
+        chatRepository.insertOrUpdateChat(chat)
+
+        val sendResult = meshRepository.sendPacket(NodeId.BROADCAST, ithantra.toBinary(), MessagePriority.EMERGENCY)
+        return if (sendResult.isSuccess) AstraResult.Success(message) else AstraResult.Failure("Failed to dispatch voice briefing")
+    }
+
+    suspend operator fun invoke(
+        alertMessage: String,
+        language: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
+    ): AstraResult<Unit> {
+        val res = sendImmediateSosBeacon(language)
+        return if (res.isSuccess) AstraResult.Success(Unit) else AstraResult.Failure("Failed to dispatch SOS")
     }
 }
 

@@ -135,6 +135,9 @@ class MeshEngine(
                         sendPacketOverConnection(pkt, pkt.destination)
                     }
                     reassembler.pruneStale(10_000L)
+                    deduplicationCache.pruneExpired()
+                    routingTable.pruneExpired()
+                    storeAndForwardQueue.pruneExpired()
                 } catch (e: Exception) {
                     AstraLog.e("MeshEngine", "Error in reliability retry worker", e)
                 }
@@ -245,6 +248,24 @@ class MeshEngine(
             return
         }
 
+        // Opportunistic reverse route learning across multi-hop relay hops
+        if (packet.source != localNodeId) {
+            val routeUpdated = routingTable.updateRoute(
+                destination = packet.source,
+                nextHop = fromNode,
+                cost = (packet.hopCount + 1).toFloat(),
+                hopCount = packet.hopCount + 1,
+                sequenceNumber = packet.sequenceNumber
+            )
+            if (routeUpdated) {
+                AstraLog.d("MeshEngine", "ROUTE_LEARNED destination=${packet.source} via nextHop=$fromNode hops=${packet.hopCount + 1}")
+                val pending = storeAndForwardQueue.pollForDestination(packet.source)
+                for (item in pending) {
+                    dispatchQueuedItem(item)
+                }
+            }
+        }
+
         when (val decision = forwarder.processPacket(packet, fromNode)) {
             is ForwardingDecision.ConsumeLocally -> {
                 receivedPacketsCounter.incrementAndGet()
@@ -254,7 +275,15 @@ class MeshEngine(
             }
             is ForwardingDecision.ForwardUnicast -> {
                 relayedPacketsCounter.incrementAndGet()
-                sendPacketOverConnection(decision.packet, decision.nextHop)
+                if (connectionPool.isConnected(decision.nextHop)) {
+                    sendPacketOverConnection(decision.packet, decision.nextHop)
+                } else {
+                    storeAndForwardQueue.enqueue(
+                        destination = decision.packet.destination,
+                        payload = AstraPacket.serialize(decision.packet),
+                        priority = if (decision.packet.flags.isEmergency) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
+                    )
+                }
                 updateStatus()
             }
             is ForwardingDecision.FloodBroadcast -> {
@@ -267,6 +296,14 @@ class MeshEngine(
                         sendPacketOverConnection(decision.packet, conn.nodeId)
                     }
                 }
+                updateStatus()
+            }
+            is ForwardingDecision.StoreAndForward -> {
+                storeAndForwardQueue.enqueue(
+                    destination = decision.packet.destination,
+                    payload = AstraPacket.serialize(decision.packet),
+                    priority = if (decision.packet.flags.isEmergency) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
+                )
                 updateStatus()
             }
             is ForwardingDecision.Drop -> {
@@ -343,7 +380,7 @@ class MeshEngine(
                 if (ithantra.language == listenerLang) {
                     textToSpeak = ithantra.text
                     speechLanguage = listenerLang
-                    snippet = "[Voice Note]: ${ithantra.text}"
+                    snippet = if (isEmergency) "[EMERGENCY ALERT]: ${ithantra.text}" else "[Voice Note]: ${ithantra.text}"
                 } else {
                     val translated = com.astramesh.core.OfflineTranslationEngine.translate(
                         ithantra.text,
@@ -352,7 +389,7 @@ class MeshEngine(
                     )
                     textToSpeak = translated
                     speechLanguage = listenerLang
-                    snippet = "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
+                    snippet = if (isEmergency) "[EMERGENCY ALERT ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated" else "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
                 }
 
                 // 3. Persist voice note in DB
@@ -549,6 +586,38 @@ class MeshEngine(
         // Flush store-and-forward queue for this peer
         val pending = storeAndForwardQueue.pollForDestination(nodeId)
         for (item in pending) {
+            dispatchQueuedItem(item)
+        }
+    }
+
+    private fun dispatchQueuedItem(item: QueuedOfflineMessage) {
+        if (AstraPacket.isAstraPacket(item.payload)) {
+            try {
+                val packet = AstraPacket.deserialize(item.payload)
+                if (packet.destination.isBroadcast) {
+                    for (conn in connectionPool.getAll()) {
+                        sendPacketOverConnection(packet, conn.nodeId)
+                    }
+                } else {
+                    val route = routingTable.getRoute(packet.destination)
+                    if (route != null && connectionPool.isConnected(route.nextHop)) {
+                        sendPacketOverConnection(packet, route.nextHop)
+                        if (packet.flags.requiresAck) {
+                            reliableDeliveryManager.trackPacket(packet, route.nextHop)
+                        }
+                    } else {
+                        // Re-enqueue if route is still not established
+                        storeAndForwardQueue.enqueue(
+                            destination = item.destination,
+                            payload = item.payload,
+                            priority = item.priority
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                AstraLog.e("MeshEngine", "Failed to deserialize stored AstraPacket", e)
+            }
+        } else {
             sendPacket(item.destination, item.payload, item.priority)
         }
     }

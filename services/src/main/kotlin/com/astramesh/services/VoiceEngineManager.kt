@@ -412,6 +412,7 @@ class VoiceEngineManager(
 
         if (isEmergency) {
             triggerEmergencyVibration()
+            playEmergencyAlertSiren()
         }
 
         val targetLocale = java.util.Locale.forLanguageTag(language.bcp47)
@@ -451,6 +452,20 @@ class VoiceEngineManager(
             }
         } catch (e: Exception) {
             AstraLog.w("VoiceEngineManager", "Vibration failed: ${e.message}")
+        }
+    }
+
+    fun playEmergencyAlertSiren() {
+        try {
+            val toneGenerator = android.media.ToneGenerator(android.media.AudioManager.STREAM_ALARM, 100)
+            toneGenerator.startTone(android.media.ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 1200)
+            mainHandler.postDelayed({
+                try {
+                    toneGenerator.release()
+                } catch (_: Exception) {}
+            }, 1300)
+        } catch (e: Exception) {
+            AstraLog.w("VoiceEngineManager", "Failed to play emergency alert tone: ${e.message}")
         }
     }
 

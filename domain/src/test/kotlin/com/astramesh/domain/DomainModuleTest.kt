@@ -27,6 +27,11 @@ class DomainModuleTest {
     private val identityRepo = mockk<IdentityRepository>(relaxed = true)
     private val meshRepo = mockk<MeshRepository>(relaxed = true)
 
+    @org.junit.Before
+    fun setUp() {
+        io.mockk.clearMocks(messageRepo, chatRepo, identityRepo, meshRepo)
+    }
+
     @Test
     fun `send message use case persists and dispatches packet`() = runTest {
         val senderNodeId = NodeId(0x1111222233334444L)
@@ -52,5 +57,84 @@ class DomainModuleTest {
         coVerify { messageRepo.insertMessage(any()) }
         coVerify { meshRepo.sendPacket(recipientNodeId, any(), MessagePriority.DIRECT_MESSAGE) }
         coVerify { messageRepo.updateMessageStatus(message.id, MessageStatus.SENT) }
+    }
+
+    @Test
+    fun `two-stage emergency broadcast use case dispatches stage 1 immediate sos beacon`() = runTest {
+        val senderNodeId = NodeId(0x1999888877776666L)
+        coEvery { identityRepo.getRotatingNodeId() } returns senderNodeId
+        coEvery { messageRepo.insertMessage(any()) } returns AstraResult.Success(Unit)
+        coEvery { chatRepo.getChatById(any()) } returns null
+        coEvery { chatRepo.insertOrUpdateChat(any()) } returns AstraResult.Success(Unit)
+        coEvery { meshRepo.sendPacket(any(), any(), any()) } returns AstraResult.Success(Unit)
+
+        val emergencyUseCase = com.astramesh.domain.usecase.EmergencyBroadcastUseCase(
+            meshRepository = meshRepo,
+            messageRepository = messageRepo,
+            chatRepository = chatRepo,
+            identityRepository = identityRepo
+        )
+
+        val stage1Result = emergencyUseCase.sendImmediateSosBeacon(com.astramesh.core.Language.HINDI)
+        assertThat(stage1Result.isSuccess).isTrue()
+        val stage1Message = (stage1Result as AstraResult.Success).value
+        assertThat(stage1Message.priority).isEqualTo(MessagePriority.EMERGENCY)
+        assertThat(stage1Message.recipientId).isEqualTo(NodeId.BROADCAST)
+        assertThat(stage1Message.ttl).isEqualTo(15)
+
+        val payloadSlot = io.mockk.slot<ByteArray>()
+        coVerify(exactly = 1) {
+            meshRepo.sendPacket(
+                NodeId.BROADCAST,
+                capture(payloadSlot),
+                MessagePriority.EMERGENCY
+            )
+        }
+
+        val captured = payloadSlot.captured
+        assertThat(com.astramesh.core.IthantraMessage.isIthantraMessage(captured)).isTrue()
+        val ithantra = com.astramesh.core.IthantraMessage.fromBinary(captured)
+        assertThat(ithantra.messageType).isEqualTo(com.astramesh.core.MessageType.SOS)
+        assertThat(ithantra.hopTtl).isEqualTo(15.toByte())
+    }
+
+    @Test
+    fun `two-stage emergency broadcast use case dispatches stage 2 voice briefing`() = runTest {
+        val senderNodeId = NodeId(0x1999888877776666L)
+        coEvery { identityRepo.getRotatingNodeId() } returns senderNodeId
+        coEvery { messageRepo.insertMessage(any()) } returns AstraResult.Success(Unit)
+        coEvery { chatRepo.getChatById(any()) } returns null
+        coEvery { chatRepo.insertOrUpdateChat(any()) } returns AstraResult.Success(Unit)
+        coEvery { meshRepo.sendPacket(any(), any(), any()) } returns AstraResult.Success(Unit)
+
+        val emergencyUseCase = com.astramesh.domain.usecase.EmergencyBroadcastUseCase(
+            meshRepository = meshRepo,
+            messageRepository = messageRepo,
+            chatRepository = chatRepo,
+            identityRepository = identityRepo
+        )
+
+        val briefingText = "Building collapsed, 3 survivors trapped on 2nd floor, need medical assistance."
+        val stage2Result = emergencyUseCase.sendVoiceBriefing(briefingText, com.astramesh.core.Language.ENGLISH)
+        assertThat(stage2Result.isSuccess).isTrue()
+        val stage2Message = (stage2Result as AstraResult.Success).value
+        assertThat(stage2Message.priority).isEqualTo(MessagePriority.EMERGENCY)
+        assertThat(stage2Message.content).contains(briefingText)
+
+        val payloadSlot = io.mockk.slot<ByteArray>()
+        coVerify(exactly = 1) {
+            meshRepo.sendPacket(
+                NodeId.BROADCAST,
+                capture(payloadSlot),
+                MessagePriority.EMERGENCY
+            )
+        }
+
+        val captured = payloadSlot.captured
+        assertThat(com.astramesh.core.IthantraMessage.isIthantraMessage(captured)).isTrue()
+        val ithantra = com.astramesh.core.IthantraMessage.fromBinary(captured)
+        assertThat(ithantra.messageType).isEqualTo(com.astramesh.core.MessageType.ALERT)
+        assertThat(ithantra.text).contains("Building collapsed")
+        assertThat(ithantra.hopTtl).isEqualTo(15.toByte())
     }
 }

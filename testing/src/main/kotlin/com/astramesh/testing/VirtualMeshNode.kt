@@ -113,7 +113,15 @@ class VirtualMeshNode(
         // Flush store and forward queue
         val pending = storeAndForwardQueue.pollForDestination(peerId)
         for (item in pending) {
-            sendPacket(item.destination, item.payload, item.priority)
+            if (AstraPacket.isAstraPacket(item.payload)) {
+                val pkt = AstraPacket.deserialize(item.payload)
+                val route = routingTable.getRoute(pkt.destination)
+                if (route != null && medium.isReachable(nodeId, route.nextHop)) {
+                    medium.transmit(nodeId, route.nextHop, item.payload)
+                }
+            } else {
+                sendPacket(item.destination, item.payload, item.priority)
+            }
         }
     }
 
@@ -123,6 +131,17 @@ class VirtualMeshNode(
         } catch (e: Exception) {
             packetsDropped.incrementAndGet()
             return
+        }
+
+        // Reverse route learning
+        if (packet.source != nodeId) {
+            routingTable.updateRoute(
+                destination = packet.source,
+                nextHop = fromNeighbor,
+                cost = (packet.hopCount + 1).toFloat(),
+                hopCount = packet.hopCount + 1,
+                sequenceNumber = packet.sequenceNumber
+            )
         }
 
         when (val decision = forwarder.processPacket(packet, fromNeighbor)) {
@@ -143,6 +162,13 @@ class VirtualMeshNode(
                 _receivedPackets.tryEmit(decision.packet)
                 val serialized = AstraPacket.serialize(decision.packet)
                 medium.broadcast(nodeId, serialized)
+            }
+            is ForwardingDecision.StoreAndForward -> {
+                storeAndForwardQueue.enqueue(
+                    destination = decision.packet.destination,
+                    payload = AstraPacket.serialize(decision.packet),
+                    priority = if (decision.packet.flags.isEmergency) MessagePriority.EMERGENCY else MessagePriority.DIRECT_MESSAGE
+                )
             }
             is ForwardingDecision.Drop -> {
                 packetsDropped.incrementAndGet()

@@ -154,6 +154,12 @@ data class AstraPacket(
             return buffer.array()
         }
 
+        fun isAstraPacket(bytes: ByteArray): Boolean {
+            return bytes.size >= HEADER_SIZE + TRAILER_SIZE &&
+                   bytes[0] == AstraNetworkConfig.MAGIC_BYTE_0 &&
+                   bytes[1] == AstraNetworkConfig.MAGIC_BYTE_1
+        }
+
         fun deserialize(bytes: ByteArray): AstraPacket {
             require(bytes.size >= HEADER_SIZE + TRAILER_SIZE) {
                 "Packet bytes length ${bytes.size} below minimum packet size ${HEADER_SIZE + TRAILER_SIZE}"
