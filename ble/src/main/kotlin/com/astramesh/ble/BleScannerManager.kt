@@ -64,15 +64,10 @@ class BleScannerManager {
 
     fun startScanning(powerMode: BlePowerMode = BlePowerMode.BALANCED): AstraResult<Unit> {
         val adapter = BluetoothAdapter.getDefaultAdapter()
-            ?: return AstraResult.Failure("Bluetooth adapter unavailable")
+        if (adapter == null) return AstraResult.Failure("Bluetooth adapter unavailable")
+        if (!adapter.isEnabled) return AstraResult.Failure("Bluetooth adapter disabled")
 
-        if (!adapter.isEnabled) {
-            return AstraResult.Failure("Bluetooth adapter disabled")
-        }
-
-        val leScanner = adapter.bluetoothLeScanner
-            ?: return AstraResult.Failure("BLE Scanner unavailable")
-
+        val leScanner = adapter.bluetoothLeScanner ?: return AstraResult.Failure("BLE Scanner unavailable")
         scanner = leScanner
 
         val scanMode = when (powerMode) {
@@ -90,8 +85,14 @@ class BleScannerManager {
             .setServiceUuid(ParcelUuid(AstraNetworkConfig.ASTRA_SERVICE_UUID))
             .build()
 
-        leScanner.startScan(listOf(filter), settings, scanCallback)
-        isScanning = true
+        try {
+            leScanner.startScan(listOf(filter), settings, scanCallback)
+            isScanning = true
+            AstraLog.d("BleScannerManager", "BLE Scanning started successfully")
+        } catch (e: Exception) {
+            AstraLog.e("BleScannerManager", "Exception during startScan", e)
+            return AstraResult.Failure("Exception starting scan: ${e.message}")
+        }
         return AstraResult.Success(Unit)
     }
 

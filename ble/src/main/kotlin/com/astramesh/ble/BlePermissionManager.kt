@@ -40,4 +40,14 @@ object BlePermissionManager {
             ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED
         }
     }
+
+    fun isLocationEnabled(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return true
+        }
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            ?: return false
+        return locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+    }
 }

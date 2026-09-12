@@ -102,6 +102,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (BlePermissionManager.hasPermissions(this)) {
+            if (!BlePermissionManager.isLocationEnabled(this)) {
+                AstraLog.w("MainActivity", "Location services disabled on Android < 31! BLE scanning requires system Location to be turned ON.")
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                } catch (e: Exception) {
+                    AstraLog.e("MainActivity", "Failed to launch location settings", e)
+                }
+            }
             startMeshForegroundService()
         } else {
             AstraLog.d("MainActivity", "Requesting missing BLE permissions...")
