@@ -343,4 +343,82 @@ class MeshModuleTest {
         assertThat(pruned).isEqualTo(1)
         assertThat(queue.size()).isEqualTo(0)
     }
+
+    @Test
+    fun `continuous 60 transmissions through BLE framing and reassembly without loss or corruption`() {
+        val fragmenter = com.astramesh.ble.BleFrameFragmenter()
+        val reassembler = com.astramesh.ble.BleFrameReassembler()
+
+        for (i in 1..60) {
+            val voiceText = "Voice Transmission Packet #$i with localized Indic speech payload text data and telemetry"
+            val ithantra = com.astramesh.core.IthantraMessage(
+                senderId = nodeA,
+                messageType = if (i % 10 == 0) com.astramesh.core.MessageType.ALERT else com.astramesh.core.MessageType.NORMAL,
+                language = com.astramesh.core.Language.HINDI,
+                sequenceNumber = i.toLong(),
+                timestamp = System.currentTimeMillis(),
+                text = voiceText
+            )
+            val packet = AstraPacket(
+                type = AstraPacketType.DATA_UNICAST,
+                flags = AstraPacketFlags(requiresAck = true),
+                sequenceNumber = i.toLong(),
+                packetId = PacketId.generate(nodeA, i.toLong(), System.currentTimeMillis()),
+                source = nodeA,
+                destination = nodeB,
+                payload = ithantra.toBinary()
+            )
+
+            val rawBytes = AstraPacket.serialize(packet)
+            // Fragment into small MTU slices
+            val slices = fragmenter.fragment(rawBytes, maxSliceSize = 35)
+            assertThat(slices.size).isAtLeast(2)
+
+            var reassembledBytes: ByteArray? = null
+            for (slice in slices) {
+                val res = reassembler.feedSlice(slice)
+                if (res != null) {
+                    reassembledBytes = res
+                }
+            }
+
+            assertThat(reassembledBytes).isNotNull()
+            val deserialized = AstraPacket.deserialize(reassembledBytes!!)
+            val decodedIthantra = com.astramesh.core.IthantraMessage.fromBinary(deserialized.payload)
+            assertThat(decodedIthantra.text).isEqualTo(voiceText)
+            assertThat(decodedIthantra.sequenceNumber).isEqualTo(i.toLong())
+        }
+
+        // Verify reassembler does not leak memory
+        assertThat(reassembler.activePartialCount()).isEqualTo(0)
+    }
+
+    @Test
+    fun `reliable delivery manager bounds capacity and cleans up on ack under high volume`() {
+        val manager = ReliableDeliveryManager(maxRetries = 3, maxCapacity = 50)
+
+        // Track 100 packets
+        for (i in 1..100) {
+            val pkt = AstraPacket(
+                type = AstraPacketType.DATA_UNICAST,
+                flags = AstraPacketFlags(requiresAck = true),
+                sequenceNumber = i.toLong(),
+                packetId = PacketId(i.toLong()),
+                source = nodeA,
+                destination = nodeB,
+                payload = "Msg $i".toByteArray()
+            )
+            manager.trackPacket(pkt, nodeB)
+        }
+
+        // Bounded capacity enforced
+        assertThat(manager.pendingCount()).isAtMost(50)
+
+        // ACKing removes from tracking immediately
+        for (i in 60..100) {
+            manager.acknowledgeSequence(i.toLong(), nodeB)
+        }
+        assertThat(manager.pendingCount()).isLessThan(50)
+    }
 }
+

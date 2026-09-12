@@ -226,12 +226,17 @@ class MeshEngine(
 
     private fun sendPacketOverConnection(packet: AstraPacket, targetNodeId: NodeId) {
         val handle = connectionPool.get(targetNodeId) ?: return
-        val maxSlice = handle.negotiatedMtu - 3
+        val maxSlice = maxOf(handle.negotiatedMtu - 3, 23)
         val rawBytes = AstraPacket.serialize(packet)
         val slices = fragmenter.fragment(rawBytes, maxSlice)
 
-        for (slice in slices) {
+        for ((index, slice) in slices.withIndex()) {
             gattClientManager.writeSlice(targetNodeId, slice)
+            if (slices.size > 1 && index < slices.size - 1) {
+                try {
+                    Thread.sleep(8) // 8ms pacing between slices to prevent BLE buffer congestion
+                } catch (_: InterruptedException) {}
+            }
         }
     }
 
@@ -318,35 +323,42 @@ class MeshEngine(
         val chatRepo = chatRepository ?: return
 
         scope.launch {
-            val isIthantra = com.astramesh.core.IthantraMessage.isIthantraMessage(packet.payload)
-            val isVoice = com.astramesh.core.VoicePayload.isVoicePayload(packet.payload)
+            try {
+                val isIthantra = com.astramesh.core.IthantraMessage.isIthantraMessage(packet.payload)
+                val isVoice = com.astramesh.core.VoicePayload.isVoicePayload(packet.payload)
 
-            if (isIthantra) {
-                val ithantra = try {
-                    com.astramesh.core.IthantraMessage.fromBinary(packet.payload)
-                } catch (e: Exception) {
-                    AstraLog.e("MeshEngine", "Failed to decode IthantraMessage", e)
-                    return@launch
-                }
-
-                // -------------------------------------------------------------
-                // CASE 1: RECEIVED PACKET IS AN ACK (TERMINATE RELIABILITY CHAIN)
-                // -------------------------------------------------------------
-                if (ithantra.messageType == com.astramesh.core.MessageType.ACK) {
-                    AstraLog.d("MeshEngine", "[RX ACK] Received ACK for seq=${ithantra.sequenceNumber} from ${packet.source}")
-                    reliableDeliveryManager.acknowledgeSequence(ithantra.sequenceNumber, packet.source)
-
-                    // Find matching message in repository and mark as DELIVERED
-                    val directChatId = com.astramesh.core.ChatId("direct_${packet.source.value}")
-                    val messages = messageRepo.observeMessages(directChatId).first()
-                    val unconfirmed = messages.firstOrNull { it.senderId == localNodeId && it.status != com.astramesh.domain.model.MessageStatus.DELIVERED }
-                    if (unconfirmed != null) {
-                        messageRepo.updateMessageStatus(unconfirmed.id, com.astramesh.domain.model.MessageStatus.DELIVERED)
+                if (isIthantra) {
+                    val ithantra = try {
+                        com.astramesh.core.IthantraMessage.fromBinary(packet.payload)
+                    } catch (e: Exception) {
+                        AstraLog.e("MeshEngine", "Failed to decode IthantraMessage", e)
+                        return@launch
                     }
 
-                    // DO NOT ACK AN ACK! DO NOT TRIGGER TTS! RETURN IMMEDIATELY!
-                    return@launch
-                }
+                    // -------------------------------------------------------------
+                    // CASE 1: RECEIVED PACKET IS AN ACK (TERMINATE RELIABILITY CHAIN)
+                    // -------------------------------------------------------------
+                    if (ithantra.messageType == com.astramesh.core.MessageType.ACK) {
+                        AstraLog.d("MeshEngine", "[RX ACK] Received ACK for seq=${ithantra.sequenceNumber} from ${packet.source}")
+                        reliableDeliveryManager.acknowledgeSequence(ithantra.sequenceNumber, packet.source)
+
+                        // Find matching message in repository and mark as DELIVERED safely
+                        try {
+                            val directChatId = com.astramesh.core.ChatId("direct_${packet.source.value}")
+                            val messages = kotlinx.coroutines.withTimeoutOrNull(500L) {
+                                messageRepo.observeMessages(directChatId).first()
+                            }
+                            val unconfirmed = messages?.firstOrNull { it.senderId == localNodeId && it.status != com.astramesh.domain.model.MessageStatus.DELIVERED }
+                            if (unconfirmed != null) {
+                                messageRepo.updateMessageStatus(unconfirmed.id, com.astramesh.domain.model.MessageStatus.DELIVERED)
+                            }
+                        } catch (e: Exception) {
+                            AstraLog.w("MeshEngine", "Warning updating message status on ACK: ${e.message}")
+                        }
+
+                        // DO NOT ACK AN ACK! DO NOT TRIGGER TTS! RETURN IMMEDIATELY!
+                        return@launch
+                    }
 
                 // -------------------------------------------------------------
                 // CASE 2: RECEIVED PACKET IS A NORMAL / ALERT / SOS VOICE MESSAGE
@@ -549,8 +561,11 @@ class MeshEngine(
                     unreadCount = existingChat.unreadCount + 1
                 )
             )
+        } catch (e: Exception) {
+            AstraLog.e("MeshEngine", "Error in persistIncomingMessage", e)
         }
     }
+}
 
     private fun handleDiscoveredPeer(nodeId: NodeId, deviceAddress: String, rssi: Int) {
         if (!connectionPool.isConnected(nodeId)) {

@@ -1,9 +1,9 @@
 package com.astramesh.ble
 
-import com.astramesh.common.ByteUtils
 import com.astramesh.common.Crc32
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Raw binary slice representing a fragment of an AstraMesh packet over BLE.
@@ -78,16 +78,15 @@ object BleFrameCodec {
 
 class BleFrameFragmenter {
 
-    private var nextPacketIndex = 0
+    private val nextPacketIndex = AtomicInteger(0)
 
-    @Synchronized
     fun fragment(packetBytes: ByteArray, maxSliceSize: Int): List<BleSlice> {
         require(maxSliceSize > BleFrameCodec.HEADER_SIZE) {
             "maxSliceSize $maxSliceSize must be greater than header size ${BleFrameCodec.HEADER_SIZE}"
         }
         val maxPayloadPerSlice = maxSliceSize - BleFrameCodec.HEADER_SIZE
         val totalSlices = (packetBytes.size + maxPayloadPerSlice - 1) / maxPayloadPerSlice
-        val packetIndex = nextPacketIndex++ and 0xFFFF
+        val packetIndex = nextPacketIndex.getAndIncrement() and 0xFFFF
         val crc = Crc32.calculate(packetBytes)
 
         val slices = mutableListOf<BleSlice>()
@@ -117,7 +116,15 @@ class BleFrameFragmenter {
     }
 }
 
-class BleFrameReassembler {
+data class PacketReassemblyKey(
+    val packetIndex: Int,
+    val packetCrc: Long
+)
+
+class BleFrameReassembler(
+    private val maxConcurrentPackets: Int = 128,
+    private val staleTimeoutMs: Long = 10_000L
+) {
 
     private data class PartialPacket(
         val packetIndex: Int,
@@ -128,13 +135,23 @@ class BleFrameReassembler {
         val createdAt: Long = System.currentTimeMillis()
     )
 
-    private val partialPackets = ConcurrentHashMap<Int, PartialPacket>()
+    private val partialPackets = ConcurrentHashMap<PacketReassemblyKey, PartialPacket>()
 
     @Synchronized
     fun feedSlice(slice: BleSlice): ByteArray? {
-        val existing = partialPackets[slice.packetIndex]
+        pruneStale(staleTimeoutMs)
+
+        val key = PacketReassemblyKey(slice.packetIndex, slice.packetCrc)
+        val existing = partialPackets[key]
 
         val partial = if (existing == null) {
+            if (partialPackets.size >= maxConcurrentPackets) {
+                // Evict oldest partial packet to prevent unbounded buffer growth
+                val oldestKey = partialPackets.minByOrNull { it.value.createdAt }?.key
+                if (oldestKey != null) {
+                    partialPackets.remove(oldestKey)
+                }
+            }
             val newPartial = PartialPacket(
                 packetIndex = slice.packetIndex,
                 totalSlices = slice.totalSlices,
@@ -142,7 +159,7 @@ class BleFrameReassembler {
                 slices = arrayOfNulls(slice.totalSlices),
                 receivedCount = 0
             )
-            partialPackets[slice.packetIndex] = newPartial
+            partialPackets[key] = newPartial
             newPartial
         } else {
             existing
@@ -151,7 +168,7 @@ class BleFrameReassembler {
         if (slice.sliceSeq < partial.totalSlices && partial.slices[slice.sliceSeq] == null) {
             partial.slices[slice.sliceSeq] = slice.payload
             val updated = partial.copy(receivedCount = partial.receivedCount + 1)
-            partialPackets[slice.packetIndex] = updated
+            partialPackets[key] = updated
 
             if (updated.receivedCount == updated.totalSlices) {
                 // Reassemble
@@ -165,7 +182,7 @@ class BleFrameReassembler {
                     }
                 }
 
-                partialPackets.remove(slice.packetIndex)
+                partialPackets.remove(key)
 
                 // Verify CRC
                 if (Crc32.verify(completeBytes, updated.expectedCrc)) {
@@ -177,8 +194,14 @@ class BleFrameReassembler {
         return null
     }
 
-    fun pruneStale(timeoutMillis: Long = 10_000L) {
+    @Synchronized
+    fun pruneStale(timeoutMillis: Long = staleTimeoutMs) {
         val now = System.currentTimeMillis()
         partialPackets.entries.removeIf { now - it.value.createdAt > timeoutMillis }
     }
+
+    fun activePartialCount(): Int = partialPackets.size
+
+    fun clear() = partialPackets.clear()
 }
+

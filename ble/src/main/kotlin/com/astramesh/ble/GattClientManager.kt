@@ -13,12 +13,14 @@ import com.astramesh.common.AstraLog
 import com.astramesh.common.AstraResult
 import com.astramesh.core.AstraNetworkConfig
 import com.astramesh.core.NodeId
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 /**
- * Manages Central GATT Client interactions: connection, MTU negotiation, PHY, notifications, and writing frames.
+ * Manages Central GATT Client interactions: connection, MTU negotiation, PHY, notifications, and paced writing frames.
+ * Hardened to prevent Android Bluetooth stack L2CAP buffer saturation and native handle exhaustion.
  */
 @SuppressLint("MissingPermission")
 class GattClientManager(
@@ -38,6 +40,15 @@ class GattClientManager(
             return AstraResult.Failure("Invalid device address: $deviceAddress", e)
         }
 
+        // Close existing handle if re-connecting
+        val existingHandle = connectionPool.get(nodeId)
+        if (existingHandle != null) {
+            try {
+                existingHandle.bluetoothGatt?.close()
+            } catch (_: Exception) {}
+            connectionPool.removeConnection(nodeId)
+        }
+
         val gattCallback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -47,6 +58,11 @@ class GattClientManager(
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     AstraLog.w("GattClientManager", "Disconnected from GATT peer ${device.address}")
                     connectionPool.removeConnection(nodeId)
+                    try {
+                        gatt.close()
+                    } catch (e: Exception) {
+                        AstraLog.w("GattClientManager", "Error closing gatt on disconnect: ${e.message}")
+                    }
                 }
             }
 
@@ -97,6 +113,9 @@ class GattClientManager(
         return AstraResult.Success(Unit)
     }
 
+    /**
+     * Writes a single BLE slice with retry if Android Bluetooth stack is busy.
+     */
     fun writeSlice(nodeId: NodeId, slice: BleSlice): AstraResult<Unit> {
         val handle = connectionPool.get(nodeId) ?: return AstraResult.Failure("Node $nodeId not connected")
         val gatt = handle.bluetoothGatt ?: return AstraResult.Failure("GATT handle null for $nodeId")
@@ -109,14 +128,43 @@ class GattClientManager(
         val data = BleFrameCodec.encodeSlice(slice)
         txChar.value = data
         txChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-        AstraLog.d("GattClientManager", "BLE_WRITE to node $nodeId length=${data.size}")
-        val success = gatt.writeCharacteristic(txChar)
+
+        var success = false
+        var attempts = 0
+        while (!success && attempts < 3) {
+            attempts++
+            success = gatt.writeCharacteristic(txChar)
+            if (!success && attempts < 3) {
+                try {
+                    Thread.sleep(5)
+                } catch (_: InterruptedException) {}
+            }
+        }
+
         if (success) {
-            AstraLog.d("GattClientManager", "WRITE_OK to node $nodeId length=${data.size}")
+            AstraLog.d("GattClientManager", "WRITE_OK to node $nodeId length=${data.size} attempt=$attempts")
+            handle.lastActivityTimestamp = System.currentTimeMillis()
         } else {
-            AstraLog.w("GattClientManager", "WRITE_FAIL to node $nodeId length=${data.size}")
+            AstraLog.w("GattClientManager", "WRITE_FAIL to node $nodeId length=${data.size} after $attempts attempts")
         }
 
         return if (success) AstraResult.Success(Unit) else AstraResult.Failure("Failed to initiate write on $nodeId")
     }
+
+    /**
+     * Writes multiple slices sequentially with coroutine-based pacing to prevent L2CAP buffer overflow.
+     */
+    suspend fun writeSlicesPaced(nodeId: NodeId, slices: List<BleSlice>, paceIntervalMs: Long = 10L): AstraResult<Unit> {
+        for ((index, slice) in slices.withIndex()) {
+            val res = writeSlice(nodeId, slice)
+            if (res.isFailure) {
+                AstraLog.w("GattClientManager", "Slice write failed at slice $index / ${slices.size} to $nodeId")
+            }
+            if (slices.size > 1 && paceIntervalMs > 0) {
+                delay(paceIntervalMs)
+            }
+        }
+        return AstraResult.Success(Unit)
+    }
 }
+

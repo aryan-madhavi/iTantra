@@ -289,7 +289,7 @@ class ConversationViewModel(
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
-        voiceEngineManager?.shutdown()
+        voiceEngineManager?.stopStt()
     }
 }
 
