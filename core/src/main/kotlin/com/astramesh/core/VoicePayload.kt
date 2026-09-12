@@ -32,17 +32,19 @@ data class VoicePayload(
     val sequence: Int,
     val isFinal: Boolean,
     val transcript: String = "",
+    val sourceLanguage: Language = Language.HINDI,
     val audioData: ByteArray = ByteArray(0)
 ) {
     fun serialize(): ByteArray {
         val transcriptBytes = transcript.toByteArray(Charsets.UTF_8)
-        val totalSize = 2 + 1 + 2 + 1 + 2 + transcriptBytes.size + 4 + audioData.size
+        val totalSize = 2 + 1 + 2 + 1 + 1 + 2 + transcriptBytes.size + 4 + audioData.size
         val buffer = ByteBuffer.allocate(totalSize)
         buffer.put(MAGIC_BYTE_0)
         buffer.put(MAGIC_BYTE_1)
         buffer.put(mode.value)
         buffer.putShort((sequence and 0xFFFF).toShort())
         buffer.put((if (isFinal) 1 else 0).toByte())
+        buffer.put(sourceLanguage.wireCode)
         buffer.putShort((transcriptBytes.size and 0xFFFF).toShort())
         buffer.put(transcriptBytes)
         buffer.putInt(audioData.size)
@@ -57,6 +59,7 @@ data class VoicePayload(
                 sequence == other.sequence &&
                 isFinal == other.isFinal &&
                 transcript == other.transcript &&
+                sourceLanguage == other.sourceLanguage &&
                 audioData.contentEquals(other.audioData)
     }
 
@@ -65,6 +68,7 @@ data class VoicePayload(
         result = 31 * result + sequence
         result = 31 * result + isFinal.hashCode()
         result = 31 * result + transcript.hashCode()
+        result = 31 * result + sourceLanguage.hashCode()
         result = 31 * result + audioData.contentHashCode()
         return result
     }
@@ -72,10 +76,10 @@ data class VoicePayload(
     companion object {
         const val MAGIC_BYTE_0: Byte = 0x56 // 'V'
         const val MAGIC_BYTE_1: Byte = 0x50 // 'P'
-        const val MIN_HEADER_SIZE = 12
+        const val MIN_HEADER_SIZE = 13
 
         fun isVoicePayload(bytes: ByteArray): Boolean {
-            return bytes.size >= MIN_HEADER_SIZE &&
+            return bytes.size >= 12 &&
                     bytes[0] == MAGIC_BYTE_0 &&
                     bytes[1] == MAGIC_BYTE_1
         }
@@ -88,6 +92,7 @@ data class VoicePayload(
                     sequence = 0,
                     isFinal = true,
                     transcript = String(bytes, Charsets.UTF_8),
+                    sourceLanguage = Language.HINDI,
                     audioData = ByteArray(0)
                 )
             }
@@ -101,6 +106,11 @@ data class VoicePayload(
                 val mode = VoiceMode.fromValue(buffer.get())
                 val sequence = buffer.short.toInt() and 0xFFFF
                 val isFinal = buffer.get().toInt() == 1
+                val sourceLanguage = if (bytes.size >= MIN_HEADER_SIZE) {
+                    Language.fromWireCode(buffer.get())
+                } else {
+                    Language.HINDI
+                }
                 val transcriptLen = buffer.short.toInt() and 0xFFFF
                 val transcriptBytes = ByteArray(transcriptLen)
                 buffer.get(transcriptBytes)
@@ -114,6 +124,7 @@ data class VoicePayload(
                     sequence = sequence,
                     isFinal = isFinal,
                     transcript = transcript,
+                    sourceLanguage = sourceLanguage,
                     audioData = audioData
                 )
             } catch (e: Exception) {
@@ -122,6 +133,7 @@ data class VoicePayload(
                     sequence = 0,
                     isFinal = true,
                     transcript = String(bytes, Charsets.UTF_8),
+                    sourceLanguage = Language.HINDI,
                     audioData = ByteArray(0)
                 )
             }

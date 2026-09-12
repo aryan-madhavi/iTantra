@@ -13,6 +13,7 @@ class MeshRepositoryImpl(
 ) : MeshRepository {
 
     override val meshStatus: StateFlow<MeshStatus> get() = meshEngine.meshStatus
+    override val preferredLanguage: com.astramesh.core.Language get() = meshEngine.preferredLanguage
 
     override suspend fun startMesh(): AstraResult<Unit> = meshEngine.start()
 

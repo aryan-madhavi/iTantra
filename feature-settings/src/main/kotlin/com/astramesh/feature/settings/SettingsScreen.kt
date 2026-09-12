@@ -23,9 +23,11 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,6 +37,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -75,6 +81,7 @@ fun SettingsScreen(
     val fingerprint by viewModel.publicKeyFingerprint.collectAsState()
     val trustStatus by viewModel.trustStatus.collectAsState()
     val meshStatus by viewModel.meshStatus.collectAsState()
+    val vadConfig by viewModel.sttVadConfig.collectAsState()
 
     Column(
         modifier = Modifier
@@ -303,6 +310,260 @@ fun SettingsScreen(
                     MetricRow("Packets Relayed", "${meshStatus.packetsRelayed}")
                     MetricRow("Packets Received", "${meshStatus.packetsReceived}")
                     MetricRow("Active BLE Links", "${meshStatus.activeConnectionsCount}")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // -----------------------------------------------------------
+            // VOICE KEYWORD / HANDS-FREE SETTINGS CARD
+            // -----------------------------------------------------------
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(AstraCyan.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = AstraCyan)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "VOICE KEYWORD / HANDS-FREE",
+                                color = AstraCyan,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Wake-word detection and capture window",
+                                color = AstraTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = vadConfig.enableKeywordDetection,
+                            onCheckedChange = { viewModel.setEnableKeywordDetection(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AstraCyan,
+                                checkedTrackColor = AstraCyan.copy(alpha = 0.4f),
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = Color.Gray.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Wake-word sensitivity (0.01..0.50)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Wake-Word Sensitivity", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "%.2f".format(vadConfig.wakeWordSensitivity),
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.wakeWordSensitivity,
+                        onValueChange = { viewModel.setWakeWordSensitivity(it) },
+                        valueRange = 0.01f..0.50f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Command capture timeout (1000..10000 ms)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Command Capture Timeout", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "${vadConfig.commandCaptureTimeoutMs} ms",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.commandCaptureTimeoutMs.toFloat(),
+                        onValueChange = { viewModel.setCommandCaptureTimeoutMs(it.toLong()) },
+                        valueRange = 1000f..10000f,
+                        steps = 17, // 500ms increments
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // -----------------------------------------------------------
+            // ADVANCED VAD & STT TUNING CARD
+            // -----------------------------------------------------------
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(AstraCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = AstraCyan)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "ADVANCED: VAD & STT TUNING",
+                                color = AstraCyan,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Voice activity detection parameters",
+                                color = AstraTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // VAD Threshold (0.10..0.90)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("VAD Threshold", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "%.2f  (RMS ≈ ${vadConfig.effectiveRmsThreshold})".format(vadConfig.vadThreshold),
+                            color = AstraCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.vadThreshold,
+                        onValueChange = { viewModel.setVadThreshold(it) },
+                        valueRange = 0.10f..0.90f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // VAD Minimum Silence (100..500 ms)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("VAD Min Silence", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "${vadConfig.vadMinSilenceMs} ms",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.vadMinSilenceMs.toFloat(),
+                        onValueChange = { viewModel.setVadMinSilenceMs(it.toLong()) },
+                        valueRange = 100f..500f,
+                        steps = 7, // 50ms increments
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // VAD Minimum Speech (100..500 ms)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("VAD Min Speech", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "${vadConfig.vadMinSpeechMs} ms",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.vadMinSpeechMs.toFloat(),
+                        onValueChange = { viewModel.setVadMinSpeechMs(it.toLong()) },
+                        valueRange = 100f..500f,
+                        steps = 7,
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // VAD Speech Padding (0..100 ms)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("VAD Speech Padding", color = AstraTextSecondary, fontSize = 12.sp)
+                        Text(
+                            "${vadConfig.vadSpeechPadMs} ms",
+                            color = AstraCyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = vadConfig.vadSpeechPadMs.toFloat(),
+                        onValueChange = { viewModel.setVadSpeechPadMs(it.toLong()) },
+                        valueRange = 0f..100f,
+                        steps = 9, // 10ms increments
+                        colors = SliderDefaults.colors(
+                            thumbColor = AstraCyan,
+                            activeTrackColor = AstraCyan,
+                            inactiveTrackColor = AstraOutline
+                        )
+                    )
                 }
             }
 

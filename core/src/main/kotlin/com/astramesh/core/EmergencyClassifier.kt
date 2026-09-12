@@ -51,36 +51,81 @@ object EmergencyClassifier {
         )
     )
 
+    private val DELIMITERS_REGEX = Regex("[\\s।,?!;:.\"/()\\[\\]{}]+")
+
+    /**
+     * Checks if text contains an emergency or distress keyword.
+     * Enforces strict word-boundary tokenization to eliminate false triggers
+     * (e.g., prevents "lessons" or "espresso" from triggering "sos").
+     */
     fun isEmergency(text: String, language: Language = Language.ENGLISH): Boolean {
-        if (text.isBlank()) return false
-        val lowerText = text.lowercase().trim()
+        return findTriggerKeyword(text, language) != null
+    }
 
-        // Universal check for SOS / HELP
-        if (lowerText.contains("sos") || lowerText.contains("help") || lowerText.contains("emergency")) {
-            return true
-        }
+    /**
+     * Finds and returns the first matching emergency keyword if present, or null.
+     * Safe against partial-word false triggers.
+     */
+    fun findTriggerKeyword(text: String, language: Language = Language.ENGLISH): String? {
+        val trimmed = text.trim()
+        if (trimmed.length < 2) return null
 
-        // Language specific keywords
-        val terms = KEYWORDS[language] ?: KEYWORDS[Language.ENGLISH] ?: emptyList()
-        for (term in terms) {
-            if (lowerText.contains(term.lowercase())) {
-                return true
+        val lowerText = trimmed.lowercase()
+        val tokens = lowerText.split(DELIMITERS_REGEX).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return null
+
+        // 1. Language-specific keywords first
+        val targetKeywords = KEYWORDS[language] ?: KEYWORDS[Language.ENGLISH] ?: emptyList()
+        matchKeywordInTokens(lowerText, tokens, targetKeywords)?.let { return it }
+
+        // 2. Universal distress check (English/Latin SOS, HELP, EMERGENCY)
+        val universalKeywords = listOf("sos", "help", "emergency", "mayday")
+        matchKeywordInTokens(lowerText, tokens, universalKeywords)?.let { return it }
+
+        // 3. Cross-language check across all other languages
+        for ((lang, terms) in KEYWORDS) {
+            if (lang != language) {
+                matchKeywordInTokens(lowerText, tokens, terms)?.let { return it }
             }
         }
 
-        // Cross-check all languages in case speaker spoke mixed words (e.g. Hindi distress in English mode)
-        for (list in KEYWORDS.values) {
-            for (term in list) {
-                if (lowerText.contains(term.lowercase())) {
-                    return true
+        return null
+    }
+
+    private fun matchKeywordInTokens(
+        lowerText: String,
+        tokens: List<String>,
+        keywords: List<String>
+    ): String? {
+        for (keyword in keywords) {
+            val lowerKw = keyword.lowercase().trim()
+            if (lowerKw.isBlank()) continue
+
+            // If keyword is multi-word (e.g., "gas leak", "गैस लीक")
+            if (lowerKw.contains(" ")) {
+                val phraseRegex = Regex("(?:^|[\\s।,?!;:.\"/()\\[\\]{}])" + Regex.escape(lowerKw) + "(?:$|[\\s।,?!;:.\"/()\\[\\]{}])")
+                if (phraseRegex.containsMatchIn(lowerText)) {
+                    return keyword
+                }
+            } else {
+                // Single-word: check if any token exactly matches
+                if (tokens.any { it == lowerKw }) {
+                    return keyword
+                }
+                // For latin single words, double check with regex word boundary
+                if (lowerKw.all { it in 'a'..'z' || it in '0'..'9' }) {
+                    val wordRegex = Regex("\\b" + Regex.escape(lowerKw) + "\\b")
+                    if (wordRegex.containsMatchIn(lowerText)) {
+                        return keyword
+                    }
                 }
             }
         }
-
-        return false
+        return null
     }
 
     fun classify(text: String, language: Language): MessageType {
         return if (isEmergency(text, language)) MessageType.ALERT else MessageType.NORMAL
     }
 }
+

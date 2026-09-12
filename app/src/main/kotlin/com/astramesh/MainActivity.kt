@@ -390,7 +390,7 @@ fun MainAppScaffold(
 
                 composable(Screen.Settings.route) {
                     val viewModel = remember {
-                        SettingsViewModel(identityRepository, meshRepository)
+                        SettingsViewModel(identityRepository, meshRepository, voiceEngineManager)
                     }
                     SettingsScreen(
                         viewModel = viewModel,

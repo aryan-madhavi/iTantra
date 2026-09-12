@@ -147,6 +147,7 @@ fun HomeScreen(
     var recordingDurationSec by remember { mutableStateOf(0) }
     var liveRms by remember { mutableStateOf(0) }
     var liveTranscript by remember { mutableStateOf("") }
+    var detectedDistressKeyword by remember { mutableStateOf<String?>(null) }
 
     // Coroutine Job for timer
     var timerJob by remember { mutableStateOf<Job?>(null) }
@@ -533,6 +534,25 @@ fun HomeScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    if (detectedDistressKeyword != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AstraCrimson.copy(alpha = 0.25f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "DISTRESS: \"$detectedDistressKeyword\" DETECTED",
+                                color = AstraCrimson,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                 } else if (pttState == PttState.TRANSMITTING) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -550,7 +570,7 @@ fun HomeScreen(
 
                 // Push To Talk Circular Touch Target
                 val buttonBrush = when {
-                    pttState == PttState.RECORDING && communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.6f)))
+                    pttState == PttState.RECORDING && (communicationMode == CommunicationMode.EMERGENCY || detectedDistressKeyword != null) -> Brush.radialGradient(listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.6f)))
                     pttState == PttState.RECORDING -> Brush.radialGradient(listOf(AstraCyan, AstraEmerald))
                     communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraSurfaceVariant))
                     communicationMode == CommunicationMode.DIRECT -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
@@ -570,6 +590,7 @@ fun HomeScreen(
                                     recordingDurationSec = 0
                                     liveRms = 0
                                     liveTranscript = ""
+                                    detectedDistressKeyword = null
                                     recordedAudioBuffer.reset()
 
                                     timerJob?.cancel()
@@ -587,6 +608,11 @@ fun HomeScreen(
                                     ) { transcript ->
                                         if (transcript.isNotBlank()) {
                                             liveTranscript = transcript
+                                            val kw = com.astramesh.core.EmergencyClassifier.findTriggerKeyword(transcript, selectedLanguage)
+                                            detectedDistressKeyword = kw
+                                            if (kw != null) {
+                                                AstraLog.i("HomeScreen", "DISTRESS_KEYWORD_ACTIVATION detected kw='$kw' in live transcript")
+                                            }
                                         }
                                     }
 
@@ -607,7 +633,7 @@ fun HomeScreen(
                                         } else if (liveTranscript.isNotBlank()) {
                                             liveTranscript
                                         } else if (duration > 0) {
-                                            if (communicationMode == CommunicationMode.EMERGENCY) {
+                                            if (communicationMode == CommunicationMode.EMERGENCY || detectedDistressKeyword != null) {
                                                 selectedLanguage.getDefaultEmergencyText()
                                             } else {
                                                 selectedLanguage.getDefaultVoiceNoteText()
@@ -617,14 +643,24 @@ fun HomeScreen(
                                         }
 
                                         if (transcriptToSend.isNotBlank()) {
-                                            AstraLog.d("HomeScreen", "PTT_SEND mode=${communicationMode.name} text='$transcriptToSend' lang=${selectedLanguage.name}")
+                                            val hasDistressKeyword = detectedDistressKeyword != null ||
+                                                    com.astramesh.core.EmergencyClassifier.isEmergency(transcriptToSend, selectedLanguage)
+                                            val effectiveMode = if (hasDistressKeyword && communicationMode != CommunicationMode.EMERGENCY) {
+                                                AstraLog.w("HomeScreen", "PTT_AUTO_ELEVATION to EMERGENCY mode triggered by keyword='$detectedDistressKeyword'")
+                                                CommunicationMode.EMERGENCY
+                                            } else {
+                                                communicationMode
+                                            }
+
+                                            AstraLog.d("HomeScreen", "PTT_SEND mode=${effectiveMode.name} text='$transcriptToSend' lang=${selectedLanguage.name} (kwElevated=$hasDistressKeyword)")
                                             sendMessageUseCase.sendVoiceMessageByMode(
-                                                mode = communicationMode,
-                                                directRecipientId = if (communicationMode == CommunicationMode.DIRECT) activeRecipientId else null,
+                                                mode = effectiveMode,
+                                                directRecipientId = if (effectiveMode == CommunicationMode.DIRECT) activeRecipientId else null,
                                                 text = transcriptToSend,
                                                 language = selectedLanguage
                                             )
                                         }
+                                        detectedDistressKeyword = null
                                         delay(300)
                                         pttState = PttState.IDLE
                                     }

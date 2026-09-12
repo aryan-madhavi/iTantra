@@ -44,6 +44,10 @@ class VirtualMeshNode(
     val receivedPackets: SharedFlow<AstraPacket> = _receivedPackets.asSharedFlow()
     val receivedPacketsHistory = java.util.Collections.synchronizedList(mutableListOf<AstraPacket>())
 
+    var preferredLanguage: com.astramesh.core.Language = com.astramesh.core.Language.ENGLISH
+    var speechSynthesizer: com.astramesh.domain.repository.SpeechSynthesizer? = null
+    val synthesizedSpeechHistory = java.util.Collections.synchronizedList(mutableListOf<SynthesizedSpeechRecord>())
+
     private var sequenceCounter = 0L
     val packetsSent = AtomicLong(0)
     val packetsRelayed = AtomicLong(0)
@@ -149,6 +153,7 @@ class VirtualMeshNode(
                 packetsReceived.incrementAndGet()
                 receivedPacketsHistory.add(decision.packet)
                 _receivedPackets.tryEmit(decision.packet)
+                processVoiceSynthesisIfApplicable(decision.packet)
             }
             is ForwardingDecision.ForwardUnicast -> {
                 packetsRelayed.incrementAndGet()
@@ -162,6 +167,7 @@ class VirtualMeshNode(
                 _receivedPackets.tryEmit(decision.packet)
                 val serialized = AstraPacket.serialize(decision.packet)
                 medium.broadcast(nodeId, serialized)
+                processVoiceSynthesisIfApplicable(decision.packet)
             }
             is ForwardingDecision.StoreAndForward -> {
                 storeAndForwardQueue.enqueue(
@@ -175,4 +181,82 @@ class VirtualMeshNode(
             }
         }
     }
+
+    private fun processVoiceSynthesisIfApplicable(packet: AstraPacket) {
+        if (com.astramesh.core.VoicePayload.isVoicePayload(packet.payload)) {
+            try {
+                val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
+                val isEmergency = packet.flags.isEmergency || voicePayload.mode == com.astramesh.core.VoiceMode.EMERGENCY
+                val textToSpeak = voicePayload.transcript.takeIf { it.isNotBlank() }
+
+                // Send ACK for unicast VoicePayload packets requiring acknowledgement
+                if (!packet.destination.isBroadcast && packet.flags.requiresAck) {
+                    val ackMsg = com.astramesh.core.IthantraMessage(
+                        senderId = nodeId,
+                        messageType = com.astramesh.core.MessageType.ACK,
+                        language = preferredLanguage,
+                        sequenceNumber = packet.sequenceNumber,
+                        timestamp = System.currentTimeMillis(),
+                        text = "ACK"
+                    )
+                    // Reverse-route back to sender
+                    val route = routingTable.getRoute(packet.source)
+                    if (route != null && medium.isReachable(nodeId, route.nextHop)) {
+                        val ackPacket = AstraPacket(
+                            type = AstraPacketType.DATA_UNICAST,
+                            flags = AstraPacketFlags(isEmergency = false, requiresAck = false, isEncrypted = false, relayAllowed = false),
+                            ttl = 1,
+                            hopCount = 0,
+                            sequenceNumber = sequenceCounter++,
+                            packetId = PacketId.generate(nodeId, sequenceCounter, System.currentTimeMillis()),
+                            source = nodeId,
+                            destination = packet.source,
+                            visitedBloomFilter = 0,
+                            payload = ackMsg.toBinary()
+                        )
+                        medium.transmit(nodeId, route.nextHop, AstraPacket.serialize(ackPacket))
+                    }
+                }
+
+                textToSpeak?.let { text ->
+                    val srcLang = voicePayload.sourceLanguage
+                    val tgtLang = preferredLanguage
+                    val translatedText = if (srcLang == tgtLang) text else com.astramesh.core.OfflineTranslationEngine.translate(text, srcLang, tgtLang)
+                    com.astramesh.common.AstraLog.d("VirtualMeshNode", "RECEIVED VoicePayload from=${packet.source} src=$srcLang tgt=$tgtLang text='$text'")
+                    com.astramesh.common.AstraLog.d("VirtualMeshNode", "TRANSLATED '$text' [$srcLang] -> '$translatedText' [$tgtLang]")
+                    synthesizedSpeechHistory.add(SynthesizedSpeechRecord(translatedText, tgtLang, isEmergency))
+                    scope.launch {
+                        speechSynthesizer?.synthesizeAndPlay(translatedText, tgtLang, isEmergency)
+                    }
+                }
+            } catch (_: Exception) {}
+        } else if (com.astramesh.core.IthantraMessage.isIthantraMessage(packet.payload)) {
+            try {
+                val ithantra = com.astramesh.core.IthantraMessage.fromBinary(packet.payload)
+                if (ithantra.messageType != com.astramesh.core.MessageType.ACK) {
+                    val isEmergency = packet.flags.isEmergency ||
+                            ithantra.messageType == com.astramesh.core.MessageType.ALERT ||
+                            ithantra.messageType == com.astramesh.core.MessageType.SOS ||
+                            com.astramesh.core.EmergencyClassifier.isEmergency(ithantra.text, ithantra.language)
+                    val textToSpeak = if (ithantra.language == preferredLanguage) {
+                        ithantra.text
+                    } else {
+                        com.astramesh.core.OfflineTranslationEngine.translate(ithantra.text, ithantra.language, preferredLanguage)
+                    }
+                    com.astramesh.common.AstraLog.d("VirtualMeshNode", "RECEIVED IthantraMessage from=${packet.source} type=${ithantra.messageType} srcLang=${ithantra.language} tgtLang=$preferredLanguage text='${ithantra.text}'")
+                    com.astramesh.common.AstraLog.d("VirtualMeshNode", "TRANSLATED '${ithantra.text}' [${ithantra.language}] -> '$textToSpeak' [$preferredLanguage] emergency=$isEmergency")
+                    synthesizedSpeechHistory.add(SynthesizedSpeechRecord(textToSpeak, preferredLanguage, isEmergency))
+                    scope.launch {
+                        speechSynthesizer?.synthesizeAndPlay(textToSpeak, preferredLanguage, isEmergency)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
 }
+
+data class SynthesizedSpeechRecord(
+    val text: String,
+    val language: com.astramesh.core.Language,
+    val isEmergency: Boolean
+)

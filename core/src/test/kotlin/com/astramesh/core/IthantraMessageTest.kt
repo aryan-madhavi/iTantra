@@ -85,6 +85,22 @@ class IthantraMessageTest {
     }
 
     @Test
+    fun `EmergencyClassifier prevents false triggers on benign words containing distress substrings`() {
+        // Words containing 'sos', 'help', 'fire' as substrings must NOT trigger emergency alerts
+        assertThat(EmergencyClassifier.isEmergency("I am having espresso today", Language.ENGLISH)).isFalse()
+        assertThat(EmergencyClassifier.isEmergency("We completed the lessons for today", Language.ENGLISH)).isFalse()
+        assertThat(EmergencyClassifier.isEmergency("She found a sea shell on the beach", Language.ENGLISH)).isFalse()
+        assertThat(EmergencyClassifier.isEmergency("The firefly is glowing nicely", Language.ENGLISH)).isFalse()
+        assertThat(EmergencyClassifier.isEmergency("The shelter is warm and dry", Language.ENGLISH)).isFalse()
+        assertThat(EmergencyClassifier.isEmergency("The response was prompt and helpful", Language.ENGLISH)).isFalse()
+
+        // Genuine standalone distress keywords must trigger
+        assertThat(EmergencyClassifier.isEmergency("We need help now!", Language.ENGLISH)).isTrue()
+        assertThat(EmergencyClassifier.isEmergency("SOS SOS emergency at sector 4", Language.ENGLISH)).isTrue()
+        assertThat(EmergencyClassifier.isEmergency("बचाओ! यहां आग लगी है!", Language.HINDI)).isTrue()
+    }
+
+    @Test
     fun `OfflineTranslationEngine same language optimization returns original text immediately`() {
         val text = "यह एक परीक्षण संदेश है।"
         val result = OfflineTranslationEngine.translate(text, Language.HINDI, Language.HINDI)

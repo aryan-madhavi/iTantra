@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astramesh.common.AstraLog
 import com.astramesh.core.NodeId
+import com.astramesh.core.SttVadConfig
 import com.astramesh.crypto.AstraPublicKey
 import com.astramesh.domain.model.MeshStatus
 import com.astramesh.domain.repository.IdentityRepository
@@ -15,7 +16,8 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val identityRepository: IdentityRepository,
-    private val meshRepository: MeshRepository
+    private val meshRepository: MeshRepository,
+    private val voiceEngineManager: com.astramesh.services.VoiceEngineManager? = null
 ) : ViewModel() {
 
     private val _displayName = MutableStateFlow("")
@@ -56,6 +58,54 @@ class SettingsViewModel(
         viewModelScope.launch {
             identityRepository.setDisplayName(name)
             AstraLog.d("SettingsViewModel", "IDENTITY Display name updated to: $name")
+        }
+    }
+
+    // -------------------------------------------------------
+    // STT / VAD Configuration State (fed from VoiceEngineManager)
+    // -------------------------------------------------------
+    val sttVadConfig: StateFlow<SttVadConfig> = voiceEngineManager?.sttVadConfigFlow
+        ?: MutableStateFlow(SttVadConfig())
+
+    fun setEnableKeywordDetection(enabled: Boolean) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(enableKeywordDetection = enabled) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD keywordDetection=$enabled")
+    }
+
+    fun setWakeWordSensitivity(value: Float) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(wakeWordSensitivity = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD wakeWordSensitivity=$value")
+    }
+
+    fun setCommandCaptureTimeoutMs(value: Long) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(commandCaptureTimeoutMs = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD commandCaptureTimeoutMs=$value")
+    }
+
+    fun setVadThreshold(value: Float) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(vadThreshold = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD vadThreshold=$value (effectiveRms=${voiceEngineManager?.sttVadConfig?.effectiveRmsThreshold})")
+    }
+
+    fun setVadMinSilenceMs(value: Long) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(vadMinSilenceMs = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD vadMinSilenceMs=$value")
+    }
+
+    fun setVadMinSpeechMs(value: Long) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(vadMinSpeechMs = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD vadMinSpeechMs=$value")
+    }
+
+    fun setVadSpeechPadMs(value: Long) {
+        voiceEngineManager?.sttVadConfig = voiceEngineManager?.sttVadConfig?.copy(vadSpeechPadMs = value) ?: return
+        AstraLog.d("SettingsViewModel", "STT_VAD vadSpeechPadMs=$value")
+    }
+
+    fun setPreferredLanguage(language: com.astramesh.core.Language) {
+        viewModelScope.launch {
+            meshRepository.setPreferredLanguage(language)
+            AstraLog.d("SettingsViewModel", "SETTINGS Preferred language updated to: ${language.name}")
         }
     }
 

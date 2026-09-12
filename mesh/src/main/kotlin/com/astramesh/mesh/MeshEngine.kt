@@ -472,7 +472,15 @@ class MeshEngine(
                 val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
                 val isEmergency = packet.flags.isEmergency || voicePayload.mode == com.astramesh.core.VoiceMode.EMERGENCY
                 val textToSpeak = voicePayload.transcript.takeIf { it.isNotBlank() }
-                val snippet = if (textToSpeak != null) "[Voice Note]: $textToSpeak" else "[Voice Note ${voicePayload.mode.name}]"
+                val srcLang = voicePayload.sourceLanguage
+                val tgtLang = preferredLanguage
+                val translatedText = textToSpeak?.let { text ->
+                    if (srcLang == tgtLang) text else com.astramesh.core.OfflineTranslationEngine.translate(text, srcLang, tgtLang)
+                }
+                if (textToSpeak != null) {
+                    AstraLog.d("MeshEngine", "VOICE_PIPELINE: src=$srcLang -> tgt=$tgtLang -> original='$textToSpeak' -> translated='$translatedText' -> ttsVoice=${tgtLang.bcp47}")
+                }
+                val snippet = if (translatedText != null) "[Voice Note]: $translatedText" else "[Voice Note ${voicePayload.mode.name}]"
 
                 val chatId = if (packet.destination.isBroadcast) {
                     com.astramesh.core.ChatId("chat_broadcast")
@@ -512,14 +520,9 @@ class MeshEngine(
                     )
                 )
 
-                textToSpeak?.let { text ->
+                translatedText?.let { text ->
                     try {
-                        val translated = if (preferredLanguage == com.astramesh.core.Language.HINDI) {
-                            text
-                        } else {
-                            com.astramesh.core.OfflineTranslationEngine.translate(text, com.astramesh.core.Language.HINDI, preferredLanguage)
-                        }
-                        speechSynthesizer?.synthesizeAndPlay(translated, preferredLanguage, isEmergency)
+                        speechSynthesizer?.synthesizeAndPlay(text, tgtLang, isEmergency)
                     } catch (e: Exception) {
                         AstraLog.e("MeshEngine", "TTS playback failed", e)
                     }

@@ -30,9 +30,16 @@ class SendMessageUseCase(
         chatId: ChatId,
         recipientId: NodeId,
         content: String,
-        priority: MessagePriority = MessagePriority.DIRECT_MESSAGE
+        priority: MessagePriority = MessagePriority.DIRECT_MESSAGE,
+        language: com.astramesh.core.Language? = null
     ): AstraResult<Message> {
         val senderId = identityRepository.getRotatingNodeId()
+        val senderLanguage = language ?: meshRepository.preferredLanguage
+        val detectedEmergency = priority == MessagePriority.EMERGENCY ||
+                com.astramesh.core.EmergencyClassifier.isEmergency(content, senderLanguage)
+        val msgType = if (detectedEmergency) com.astramesh.core.MessageType.ALERT else com.astramesh.core.MessageType.NORMAL
+        val effectivePriority = if (detectedEmergency) MessagePriority.EMERGENCY else priority
+
         val message = Message(
             id = MessageId(UUID.randomUUID().toString()),
             chatId = chatId,
@@ -40,9 +47,9 @@ class SendMessageUseCase(
             recipientId = recipientId,
             timestamp = System.currentTimeMillis(),
             content = content,
-            contentType = MessageContentType.TEXT,
+            contentType = if (detectedEmergency) MessageContentType.SYSTEM_ALERT else MessageContentType.TEXT,
             status = MessageStatus.QUEUED,
-            priority = priority
+            priority = effectivePriority
         )
 
         val insertResult = messageRepository.insertMessage(message)
@@ -62,11 +69,25 @@ class SendMessageUseCase(
             )
         )
 
-        com.astramesh.common.AstraLog.d("SendMessageUseCase", "MSG_SEND id=${message.id} senderId=$senderId recipientId=$recipientId")
+        val seqNo = System.currentTimeMillis() and 0xFFFFFFFFL
+        val ithantraMessage = com.astramesh.core.IthantraMessage(
+            senderId = senderId,
+            messageType = msgType,
+            language = senderLanguage,
+            sequenceNumber = seqNo,
+            timestamp = message.timestamp,
+            text = content,
+            hopTtl = if (effectivePriority == MessagePriority.EMERGENCY) 15 else 7,
+            gpsLatitude = 0.0f,
+            gpsLongitude = 0.0f
+        )
+        com.astramesh.common.AstraLog.i("PIPELINE", "CREATED: id=${message.id} type=TEXT srcLang=${senderLanguage.name} text='$content'")
+
         // Dispatch through mesh
-        val payload = content.toByteArray(Charsets.UTF_8)
-        val sendResult = meshRepository.sendPacket(recipientId, payload, priority)
+        val payload = ithantraMessage.toBinary()
+        val sendResult = meshRepository.sendPacket(recipientId, payload, effectivePriority)
         if (sendResult.isSuccess) {
+            com.astramesh.common.AstraLog.i("PIPELINE", "SENT: dest=$recipientId seq=$seqNo lang=${senderLanguage.name} text='$content'")
             messageRepository.updateMessageStatus(message.id, MessageStatus.SENT)
         }
 

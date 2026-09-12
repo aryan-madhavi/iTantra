@@ -64,6 +64,7 @@ interface AttachmentRepository {
 
 interface MeshRepository {
     val meshStatus: StateFlow<MeshStatus>
+    val preferredLanguage: com.astramesh.core.Language
     suspend fun startMesh(): AstraResult<Unit>
     suspend fun stopMesh(): AstraResult<Unit>
     suspend fun sendPacket(recipientId: NodeId, payload: ByteArray, priority: com.astramesh.domain.model.MessagePriority): AstraResult<Unit>

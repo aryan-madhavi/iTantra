@@ -227,6 +227,60 @@ object OfflineTranslationEngine {
         )
     )
 
+    // Tactical Emergency & Location Keywords across all 10 project languages
+    private val TACTICAL_TERMS: Map<String, Map<Language, String>> = mapOf(
+        "help" to mapOf(
+            Language.ENGLISH to "help", Language.HINDI to "मदद", Language.GUJARATI to "મદદ",
+            Language.MARATHI to "मदत", Language.TAMIL to "உதவி", Language.TELUGU to "సహాయం",
+            Language.KANNADA to "ಸಹಾಯ", Language.MALAYALAM to "സഹായം", Language.ODIA to "ସାହାଯ୍ୟ", Language.BENGALI to "সাহায্য"
+        ),
+        "fire" to mapOf(
+            Language.ENGLISH to "fire", Language.HINDI to "आग", Language.GUJARATI to "આગ",
+            Language.MARATHI to "आग", Language.TAMIL to "தீ", Language.TELUGU to "నిప్పు",
+            Language.KANNADA to "ಬೆಂಕಿ", Language.MALAYALAM to "തീ", Language.ODIA to "ନିଆଁ", Language.BENGALI to "আগুন"
+        ),
+        "danger" to mapOf(
+            Language.ENGLISH to "danger", Language.HINDI to "खतरा", Language.GUJARATI to "જોખમ",
+            Language.MARATHI to "धोका", Language.TAMIL to "ஆபத்து", Language.TELUGU to "ప్రమాదం",
+            Language.KANNADA to "ಅಪಾಯ", Language.MALAYALAM to "അപകടം", Language.ODIA to "ବିପଦ", Language.BENGALI to "বিপদ"
+        ),
+        "emergency" to mapOf(
+            Language.ENGLISH to "emergency", Language.HINDI to "आपातकाल", Language.GUJARATI to "કટોકટી",
+            Language.MARATHI to "आणीबाणी", Language.TAMIL to "அவசரம்", Language.TELUGU to "అత్యవసరం",
+            Language.KANNADA to "ತುರ್ತು", Language.MALAYALAM to "അടിയന്തരാവസ്ഥ", Language.ODIA to "ଜରୁରୀ", Language.BENGALI to "জরুরী"
+        ),
+        "doctor" to mapOf(
+            Language.ENGLISH to "doctor", Language.HINDI to "चिकित्सक", Language.GUJARATI to "ડોક્ટર",
+            Language.MARATHI to "डॉक्टर", Language.TAMIL to "மருத்துவர்", Language.TELUGU to "వైద్యుడు",
+            Language.KANNADA to "ವೈದ್ಯ", Language.MALAYALAM to "ഡോക്ടർ", Language.ODIA to "ଡାକ୍ତର", Language.BENGALI to "ডাক্তার"
+        ),
+        "ambulance" to mapOf(
+            Language.ENGLISH to "ambulance", Language.HINDI to "एम्बुलेंस", Language.GUJARATI to "એમ્બ્યુલન્સ",
+            Language.MARATHI to "रुग्णवाहिका", Language.TAMIL to "ஆம்புலன்ஸ்", Language.TELUGU to "అంబులెన్స్",
+            Language.KANNADA to "ಆಂಬ್ಯುಲೆನ್ಸ್", Language.MALAYALAM to "ആംബുലൻസ്", Language.ODIA to "ଆମ୍ବୁଲାନ୍ସ", Language.BENGALI to "অ্যাম্বুলেন্স"
+        ),
+        "police" to mapOf(
+            Language.ENGLISH to "police", Language.HINDI to "पुलिस", Language.GUJARATI to "પોલીસ",
+            Language.MARATHI to "पोलीस", Language.TAMIL to "போலீஸ்", Language.TELUGU to "పోలీసు",
+            Language.KANNADA to "ಪೊಲೀಸ್", Language.MALAYALAM to "പോലീസ്", Language.ODIA to "ପୋଲିସ", Language.BENGALI to "পুলিশ"
+        ),
+        "water" to mapOf(
+            Language.ENGLISH to "water", Language.HINDI to "पानी", Language.GUJARATI to "પાણી",
+            Language.MARATHI to "पाणी", Language.TAMIL to "தண்ணீர்", Language.TELUGU to "నీరు",
+            Language.KANNADA to "ನೀರು", Language.MALAYALAM to "വെള്ളം", Language.ODIA to "ପାଣି", Language.BENGALI to "জল"
+        ),
+        "food" to mapOf(
+            Language.ENGLISH to "food", Language.HINDI to "भोजन", Language.GUJARATI to "ખોરાક",
+            Language.MARATHI to "अन्न", Language.TAMIL to "உணவு", Language.TELUGU to "ఆహారం",
+            Language.KANNADA to "ಆಹಾರ", Language.MALAYALAM to "ഭക്ഷണം", Language.ODIA to "ଖାଦ୍ୟ", Language.BENGALI to "খাবার"
+        ),
+        "safe" to mapOf(
+            Language.ENGLISH to "safe", Language.HINDI to "सुरक्षित", Language.GUJARATI to "સુરક્ષિત",
+            Language.MARATHI to "सुरक्षित", Language.TAMIL to "பாதுகாப்பானது", Language.TELUGU to "సురక్షితం",
+            Language.KANNADA to "ಸುರಕ್ಷಿತ", Language.MALAYALAM to "സുരക്ഷിതം", Language.ODIA to "ସୁରକ୍ଷିତ", Language.BENGALI to "নিরাপদ"
+        )
+    )
+
     fun translate(text: String, sourceLang: Language, targetLang: Language): String {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return ""
@@ -249,19 +303,78 @@ object OfflineTranslationEngine {
             }
         }
 
-        // 2. Substring phrase match
+        // 2. Substring phrase match (for composite voice notes)
         for ((_, translations) in PHRASE_INDEX) {
             val sourcePhrase = translations[sourceLang]
             val targetPhrase = translations[targetLang]
             if (sourcePhrase != null && targetPhrase != null) {
                 val cleanSource = sourcePhrase.replace("[।.,?!]".toRegex(), "").trim()
-                if (trimmed.contains(cleanSource, ignoreCase = true)) {
+                if (cleanSource.length >= 4 && trimmed.contains(cleanSource, ignoreCase = true)) {
                     return targetPhrase
                 }
             }
         }
 
-        // 3. Fallback: Return original text with language tag if no dictionary match
+        // 3. Tactical term replacement if emergency terms are present
+        var translated = trimmed
+        var termReplaced = false
+        for ((_, termMap) in TACTICAL_TERMS) {
+            val srcTerm = termMap[sourceLang]
+            val tgtTerm = termMap[targetLang]
+            if (srcTerm != null && tgtTerm != null && srcTerm.isNotBlank()) {
+                if (translated.contains(srcTerm, ignoreCase = true)) {
+                    translated = translated.replace(Regex("(?i)" + Regex.escape(srcTerm)), tgtTerm)
+                    termReplaced = true
+                }
+            }
+        }
+
+        if (termReplaced) {
+            return translated
+        }
+
+        // 4. Fallback: Return original text if no dictionary or phrase match
         return trimmed
+    }
+
+    /**
+     * Resolves an audible fallback string (English phrase) when the target language
+     * voice pack is not installed on the receiver's Android TTS engine.
+     * Prevents TTS from silently dropping Devanagari characters and producing silence.
+     */
+    fun getAudibleFallbackForTts(text: String, targetLang: Language): String {
+        val trimmed = text.trim()
+        if (targetLang == Language.ENGLISH || trimmed.isEmpty()) return trimmed
+
+        // Match against known phrase index to get the English translation
+        for ((_, translations) in PHRASE_INDEX) {
+            val targetPhrase = translations[targetLang]
+            val englishPhrase = translations[Language.ENGLISH]
+            if (targetPhrase != null && englishPhrase != null) {
+                val cleanTarget = targetPhrase.replace("[।.,?!]".toRegex(), "").trim()
+                val cleanInput = trimmed.replace("[।.,?!]".toRegex(), "").trim()
+                if (cleanTarget.equals(cleanInput, ignoreCase = true) || trimmed.contains(cleanTarget, ignoreCase = true)) {
+                    return englishPhrase
+                }
+            }
+        }
+
+        // Check if any tactical term matches
+        for ((_, termMap) in TACTICAL_TERMS) {
+            val tgtTerm = termMap[targetLang]
+            val engTerm = termMap[Language.ENGLISH]
+            if (tgtTerm != null && engTerm != null && tgtTerm.isNotBlank()) {
+                if (trimmed.contains(tgtTerm, ignoreCase = true)) {
+                    return "Alert: $engTerm"
+                }
+            }
+        }
+
+        // Return default emergency or alert phrase in English if emergency
+        if (EmergencyClassifier.isEmergency(trimmed, targetLang)) {
+            return "Emergency Alert! Immediate assistance required!"
+        }
+
+        return "Voice message received: $trimmed"
     }
 }

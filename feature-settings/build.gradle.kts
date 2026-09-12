@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":routing"))
     implementation(project(":ui"))
+    implementation(project(":services"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

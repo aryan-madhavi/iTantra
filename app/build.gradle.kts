@@ -44,6 +44,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    @Suppress("DEPRECATION")
+    aaptOptions {
+        noCompress += listOf("onnx", "bin")
+    }
 }
 
 dependencies {

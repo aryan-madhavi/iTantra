@@ -87,6 +87,9 @@ class ConversationViewModel(
     private val _liveTranscript = MutableStateFlow("")
     val liveTranscript: StateFlow<String> = _liveTranscript.asStateFlow()
 
+    private val _detectedDistressKeyword = MutableStateFlow<String?>(null)
+    val detectedDistressKeyword: StateFlow<String?> = _detectedDistressKeyword.asStateFlow()
+
     private val _isReceiverSpeaking = MutableStateFlow(false)
     val isReceiverSpeaking: StateFlow<Boolean> = _isReceiverSpeaking.asStateFlow()
 
@@ -141,6 +144,7 @@ class ConversationViewModel(
         _recordingDurationSec.value = 0
         _liveRms.value = 0
         _liveTranscript.value = ""
+        _detectedDistressKeyword.value = null
         synchronized(recordedAudioBuffer) {
             recordedAudioBuffer.reset()
         }
@@ -168,6 +172,11 @@ class ConversationViewModel(
         ) { transcript ->
             if (transcript.isNotBlank()) {
                 _liveTranscript.value = transcript
+                val kw = com.astramesh.core.EmergencyClassifier.findTriggerKeyword(transcript, _speechLanguage.value)
+                _detectedDistressKeyword.value = kw
+                if (kw != null) {
+                    AstraLog.i("ConversationViewModel", "DISTRESS_KEYWORD_ACTIVATION detected kw='$kw' in speech")
+                }
             }
         }
     }
@@ -207,8 +216,9 @@ class ConversationViewModel(
             }
 
             if (textToSend.isNotBlank()) {
-                val isEmergency = (mode == VoiceMode.EMERGENCY)
-                AstraLog.d("ConversationViewModel", "SEND $modeTag IthantraMessage text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
+                val hasKeyword = _detectedDistressKeyword.value != null || com.astramesh.core.EmergencyClassifier.isEmergency(textToSend, _speechLanguage.value)
+                val isEmergency = (mode == VoiceMode.EMERGENCY) || hasKeyword
+                AstraLog.d("ConversationViewModel", "SEND $modeTag IthantraMessage text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency (kwTriggered=$hasKeyword)")
                 sendMessageUseCase.sendIthantraVoiceMessage(
                     chatId = chatId,
                     recipientId = recipientId,
@@ -217,6 +227,7 @@ class ConversationViewModel(
                     isEmergency = isEmergency
                 )
             }
+            _detectedDistressKeyword.value = null
         }
     }
 
