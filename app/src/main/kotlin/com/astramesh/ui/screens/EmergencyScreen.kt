@@ -26,16 +26,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Emergency
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -55,26 +48,23 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
-import com.astramesh.domain.model.Message
-import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.repository.MeshRepository
 import com.astramesh.domain.repository.MessageRepository
 import com.astramesh.domain.usecase.EmergencyBroadcastUseCase
 import com.astramesh.services.VoiceEngineManager
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
-import com.astramesh.ui.theme.AstraCyan
 import com.astramesh.ui.theme.AstraEmerald
 import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraSurfaceVariant
 import com.astramesh.ui.theme.AstraTextPrimary
 import com.astramesh.ui.theme.AstraTextSecondary
+import com.astramesh.ui.i18n.appStrings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -92,13 +82,12 @@ fun EmergencyScreen(
     voiceEngineManager: VoiceEngineManager?,
     onBackClicked: () -> Unit
 ) {
+    val strings = appStrings()
     val scope = rememberCoroutineScope()
     var isHoldingSos by remember { mutableStateOf(false) }
     var holdProgress by remember { mutableStateOf(0f) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
-    var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
-    var languageDropdownExpanded by remember { mutableStateOf(false) }
-    var lastBroadcastStatus by remember { mutableStateOf<String?>(null) }
+    var lastBroadcastStatus by remember { mutableStateOf<EmergencyBroadcastUiStatus?>(null) }
 
     val emergencyMessages by messageRepository.observeMessages(com.astramesh.core.ChatId("chat_emergency_broadcast"))
         .collectAsState(initial = emptyList())
@@ -126,53 +115,22 @@ fun EmergencyScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBackClicked) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = AstraTextPrimary)
+                Icon(Icons.Default.ArrowBack, contentDescription = strings.cancel, tint = AstraTextPrimary)
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "EMERGENCY BEACON",
+                    text = strings.emergencyVoiceBroadcast,
                     color = AstraCrimson,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "HIGH-PRIORITY MESH FLOODING",
+                    text = strings.emergencyPriorityDescription,
                     color = AstraTextSecondary,
                     fontSize = 11.sp
                 )
-            }
-
-            // Language Selector Chip & Dropdown
-            Box {
-                FilterChip(
-                    selected = true,
-                    onClick = { languageDropdownExpanded = true },
-                    label = { Text(selectedLanguage.nativeName, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = AstraSurfaceVariant,
-                        labelColor = AstraCyan
-                    )
-                )
-
-                DropdownMenu(
-                    expanded = languageDropdownExpanded,
-                    onDismissRequest = { languageDropdownExpanded = false }
-                ) {
-                    Language.entries.forEach { lang ->
-                        DropdownMenuItem(
-                            text = { Text("${lang.nativeName} (${lang.englishName})") },
-                            onClick = {
-                                selectedLanguage = lang
-                                languageDropdownExpanded = false
-                                voiceEngineManager?.preferredLanguage = lang
-                                meshRepository?.setPreferredLanguage(lang)
-                                AstraLog.d("EmergencyScreen", "SOS Language changed to ${lang.englishName}")
-                            }
-                        )
-                    }
-                }
             }
         }
 
@@ -191,7 +149,7 @@ fun EmergencyScreen(
                 Icon(androidx.compose.material.icons.Icons.Default.Warning, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Distress alerts override DND, gain exclusive audio focus, and trigger siren + vibration on all listening devices in mesh range.",
+                    text = strings.emergencyAlertDesc,
                     color = AstraTextPrimary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -213,14 +171,14 @@ fun EmergencyScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "ARE YOU IN IMMEDIATE DANGER?",
+                    text = strings.emergencyAlertTitle,
                     color = AstraTextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (isHoldingSos) "Keep holding to broadcast..." else "Hold for 2 seconds to broadcast SOS",
+                    text = strings.holdToBroadcast,
                     color = if (isHoldingSos) AstraCrimson else AstraTextSecondary,
                     fontSize = 12.sp
                 )
@@ -254,14 +212,15 @@ fun EmergencyScreen(
                                         }
 
                                         if (isActive && holdProgress >= 1f) {
-                                            AstraLog.d("EmergencyScreen", "SOS Triggered! Broadcasting distress signal in ${selectedLanguage.englishName}...")
-                                            lastBroadcastStatus = "Broadcasting Emergency SOS..."
-                                            val alertText = selectedLanguage.getDefaultEmergencyText()
+                                            val alertLanguage = voiceEngineManager?.preferredLanguage ?: Language.HINDI
+                                            AstraLog.d("EmergencyScreen", "SOS Triggered! Broadcasting distress signal in ${alertLanguage.englishName}...")
+                                            lastBroadcastStatus = EmergencyBroadcastUiStatus.BROADCASTING
+                                            val alertText = alertLanguage.getDefaultEmergencyText()
                                             emergencyBroadcastUseCase(
                                                 alertMessage = alertText,
-                                                language = selectedLanguage
+                                                language = alertLanguage
                                             )
-                                            lastBroadcastStatus = "Emergency SOS Broadcast Dispatched!"
+                                            lastBroadcastStatus = EmergencyBroadcastUiStatus.DISPATCHED
                                             isHoldingSos = false
                                             holdProgress = 0f
                                         }
@@ -282,13 +241,13 @@ fun EmergencyScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             Icons.Default.Emergency,
-                            contentDescription = "SOS",
+                            contentDescription = strings.emergencyBroadcast,
                             tint = Color.White,
                             modifier = Modifier.size(54.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "HOLD SOS",
+                            text = strings.broadcastAlertNow,
                             color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Black
@@ -312,7 +271,10 @@ fun EmergencyScreen(
                 lastBroadcastStatus?.let { status ->
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = status,
+                        text = when (status) {
+                            EmergencyBroadcastUiStatus.BROADCASTING -> strings.broadcastingEmergency
+                            EmergencyBroadcastUiStatus.DISPATCHED -> strings.emergencyDispatched
+                        },
                         color = AstraEmerald,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -331,7 +293,7 @@ fun EmergencyScreen(
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
-                    text = "Distress Broadcasts Log",
+                    text = strings.transcriptsTitle,
                     color = AstraCrimson,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
@@ -343,7 +305,7 @@ fun EmergencyScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No active distress alerts in sector.", color = AstraTextSecondary, fontSize = 11.sp)
+                        Text(strings.noTranscripts, color = AstraTextSecondary, fontSize = 11.sp)
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -381,4 +343,9 @@ fun EmergencyScreen(
             }
         }
     }
+}
+
+private enum class EmergencyBroadcastUiStatus {
+    BROADCASTING,
+    DISPATCHED
 }

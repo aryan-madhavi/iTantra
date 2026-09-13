@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.astramesh.domain.model.Peer
 import com.astramesh.domain.model.PeerTrustLevel
 import com.astramesh.ui.components.AstraTopBar
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.components.SignalStrengthIndicator
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCyan
@@ -65,12 +66,13 @@ fun NearbyPeersScreen(
     viewModel: NearbyPeersViewModel,
     onConnectClicked: (Peer) -> Unit
 ) {
+    val strings = appStrings()
     val peers by viewModel.peers.collectAsState()
 
     Scaffold(
         topBar = {
             AstraTopBar(
-                title = "BLE Radar Discovery",
+                title = strings.navDiscovery,
                 connectedPeersCount = peers.size
             )
         },
@@ -95,7 +97,7 @@ fun NearbyPeersScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "DISCOVERED PEERS (${peers.size})",
+                text = "${strings.availableNodes} (${peers.size})",
                 color = AstraTextSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -174,6 +176,7 @@ fun PeerCard(
     onConnect: () -> Unit,
     onVerify: () -> Unit
 ) {
+    val strings = appStrings()
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
@@ -221,7 +224,7 @@ fun PeerCard(
                 colors = ButtonDefaults.buttonColors(containerColor = AstraCyan),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text("Connect", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(strings.connectAction, color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }

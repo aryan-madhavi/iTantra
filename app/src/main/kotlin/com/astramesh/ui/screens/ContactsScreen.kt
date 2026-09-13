@@ -54,6 +54,7 @@ import com.astramesh.core.NodeId
 import com.astramesh.domain.model.Peer
 import com.astramesh.domain.repository.PeerRepository
 import com.astramesh.ui.components.PulsingStatusDot
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCyan
 import com.astramesh.ui.theme.AstraEmerald
@@ -70,6 +71,7 @@ fun ContactsScreen(
     onOpenConversation: (chatId: String, recipientId: Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
     val peers by peerRepository.observeNearbyPeers().collectAsState(initial = emptyList())
 
     var searchQuery by remember { mutableStateOf("") }
@@ -84,11 +86,11 @@ fun ContactsScreen(
     if (peerToEdit != null) {
         AlertDialog(
             onDismissRequest = { peerToEdit = null },
-            title = { Text("Set Contact Name", color = AstraTextPrimary) },
+            title = { Text(strings.userProfileTitle, color = AstraTextPrimary) },
             text = {
                 Column {
                     Text(
-                        "Assign a friendly name for device ${peerToEdit?.nodeId?.toHex()?.take(8)}:",
+                        "${strings.assignDeviceNamePrompt} ${peerToEdit?.nodeId?.toHex()?.take(8)}:",
                         color = AstraTextSecondary,
                         fontSize = 13.sp
                     )
@@ -96,7 +98,7 @@ fun ContactsScreen(
                     OutlinedTextField(
                         value = editNameInput,
                         onValueChange = { editNameInput = it },
-                        placeholder = { Text("e.g. Rahul, Priya, Team Leader") },
+                        placeholder = { Text(strings.enterNamePlaceholder) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = AstraCyan,
                             unfocusedBorderColor = AstraOutline,
@@ -121,12 +123,12 @@ fun ContactsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AstraCyan)
                 ) {
-                    Text("Save Contact", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text(strings.saveProfile, color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { peerToEdit = null }) {
-                    Text("Cancel", color = AstraTextSecondary)
+                    Text(strings.cancel, color = AstraTextSecondary)
                 }
             },
             containerColor = AstraSurface
@@ -140,13 +142,13 @@ fun ContactsScreen(
             .padding(16.dp)
     ) {
         Text(
-            text = "Contacts & Nearby Nodes",
+            text = strings.contacts,
             color = AstraTextPrimary,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Offline decentralized directory • Saved locally",
+            text = strings.offlineCommsMesh,
             color = AstraTextSecondary,
             fontSize = 12.sp
         )
@@ -157,7 +159,7 @@ fun ContactsScreen(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search contacts or node IDs...") },
+            placeholder = { Text(strings.searchTranscripts) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AstraTextSecondary) },
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(
@@ -182,8 +184,8 @@ fun ContactsScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Person, contentDescription = null, tint = AstraTextSecondary, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("No peers or contacts found", color = AstraTextSecondary, fontSize = 14.sp)
-                    Text("Nearby devices discovered on BLE mesh will appear here.", color = AstraTextSecondary, fontSize = 12.sp)
+                    Text(strings.noContactsFound, color = AstraTextSecondary, fontSize = 14.sp)
+                    Text(strings.searchingLocalNodes, color = AstraTextSecondary, fontSize = 12.sp)
                 }
             }
         } else {
@@ -214,6 +216,7 @@ fun ContactCard(
     onOpenChat: () -> Unit,
     onEditName: () -> Unit
 ) {
+    val strings = appStrings()
     val name = peer.displayName
     val isKnownName = name != null && !name.startsWith("Node-")
     val displayName = name ?: "Node-${peer.nodeId.toHex().take(8)}"
@@ -272,7 +275,7 @@ fun ContactCard(
                 IconButton(onClick = onEditName) {
                     Icon(
                         Icons.Default.Edit,
-                        contentDescription = "Edit Name",
+                        contentDescription = strings.operatorName,
                         tint = AstraTextSecondary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -282,7 +285,7 @@ fun ContactCard(
                     colors = ButtonDefaults.buttonColors(containerColor = AstraCyan),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Talk", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(strings.pushToTalk, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.astramesh.domain.model.Chat
 import com.astramesh.domain.model.ChatType
 import com.astramesh.ui.components.AstraTopBar
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
 import com.astramesh.ui.theme.AstraCyan
@@ -55,11 +56,12 @@ fun ChatListScreen(
     onNewChatClicked: () -> Unit
 ) {
     val chats by viewModel.chats.collectAsState()
+    val strings = appStrings()
 
     Scaffold(
         topBar = {
             AstraTopBar(
-                title = "iTantra",
+                title = strings.appName,
                 connectedPeersCount = chats.size
             )
         },
@@ -69,7 +71,7 @@ fun ChatListScreen(
                 containerColor = AstraCyan,
                 contentColor = Color.Black
             ) {
-                Icon(Icons.Default.Add, contentDescription = "New Conversation")
+                Icon(Icons.Default.Add, contentDescription = strings.newChat)
             }
         },
         containerColor = AstraBackground
@@ -83,14 +85,14 @@ fun ChatListScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "No Active Conversations",
+                        text = strings.noChatsFound,
                         color = AstraTextPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connect with nearby peers to start communicating",
+                        text = strings.searchingLocalNodes,
                         color = AstraTextSecondary,
                         fontSize = 14.sp
                     )
@@ -115,6 +117,7 @@ fun ChatItem(
     chat: Chat,
     onClick: () -> Unit
 ) {
+    val strings = appStrings()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -183,7 +186,7 @@ fun ChatItem(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = chat.lastMessage?.content ?: "No messages yet",
+                text = chat.lastMessage?.content ?: strings.noTranscripts,
                 color = AstraTextSecondary,
                 fontSize = 14.sp,
                 maxLines = 1,

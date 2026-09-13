@@ -4,7 +4,8 @@ import android.content.Context
 import android.os.Build
 import android.os.LocaleList
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.neverEqualPolicy
 import java.util.Locale
 
 /**
@@ -98,6 +99,329 @@ data class AppStrings(
     val connectionSettings: String,
     val devMode: String
 ) {
+    val peersActive: String
+        get() = when (languageCode) {
+            "hi" -> "सक्रिय साथी"
+            "gu" -> "સક્રિય પીઅર્સ"
+            "mr" -> "सक्रिय सहकारी"
+            "kn" -> "ಸಕ್ರಿಯ ಸಹಪಾಠಿಗಳು"
+            "ml" -> "സജീവ പിയർമാർ"
+            "ta" -> "செயலில் உள்ளவர்கள்"
+            "te" -> "క్రియాశీల సహచరులు"
+            "or" -> "ସକ୍ରିୟ ସାଥୀ"
+            "bn" -> "সক্রিয় সহকর্মী"
+            else -> "peers active"
+        }
+
+    val contacts: String
+        get() = when (languageCode) {
+            "hi" -> "संपर्क"
+            "gu" -> "સંપર્કો"
+            "mr" -> "संपर्क"
+            "kn" -> "ಸಂಪರ್ಕಗಳು"
+            "ml" -> "ബന്ധങ്ങൾ"
+            "ta" -> "தொடர்புகள்"
+            "te" -> "పరిచయాలు"
+            "or" -> "ଯୋଗାଯୋଗ"
+            "bn" -> "পরিচিতি"
+            else -> "Contacts"
+        }
+
+    val meshBroadcast: String
+        get() = when (languageCode) {
+            "hi" -> "मेश प्रसारण"
+            "gu" -> "મેશ પ્રસારણ"
+            "mr" -> "मेश प्रसारण"
+            "kn" -> "ಮೆಶ್ ಪ್ರಸಾರ"
+            "ml" -> "മെഷ് പ്രക്ഷേപണം"
+            "ta" -> "மெஷ் ஒலிபரப்பு"
+            "te" -> "మెష్ ప్రసారం"
+            "or" -> "ମେଶ୍ ପ୍ରସାରଣ"
+            "bn" -> "মেশ সম্প্রচার"
+            else -> "Mesh Broadcast"
+        }
+
+    val directPeer: String
+        get() = when (languageCode) {
+            "hi" -> "पीयर"
+            "gu" -> "પીઅર"
+            "mr" -> "पीअर"
+            "kn" -> "ಸಹಪಾಠಿ"
+            "ml" -> "പിയർ"
+            "ta" -> "பியர்"
+            "te" -> "పీర్"
+            "or" -> "ସାଥୀ"
+            "bn" -> "সহকর্মী"
+            else -> "Peer"
+        }
+
+    val allMesh: String
+        get() = when (languageCode) {
+            "hi" -> "संपूर्ण मेश"
+            "gu" -> "આખું મેશ"
+            "mr" -> "संपूर्ण मेश"
+            "kn" -> "ಸಂಪೂರ್ಣ ಮೆಶ್"
+            "ml" -> "മുഴുവൻ മെഷ്"
+            "ta" -> "முழு மெஷ்"
+            "te" -> "మొత్తం మెష్"
+            "or" -> "ସମ୍ପୂର୍ଣ୍ଣ ମେଶ୍"
+            "bn" -> "সমগ্র মেশ"
+            else -> "All Mesh"
+        }
+
+    val replay: String
+        get() = when (languageCode) {
+            "hi" -> "फिर चलाएं"
+            "gu" -> "ફરી ચલાવો"
+            "mr" -> "पुन्हा वाजवा"
+            "kn" -> "ಮರುಚಲಾಯಿಸಿ"
+            "ml" -> "വീണ്ടും പ്ലേ ചെയ്യുക"
+            "ta" -> "மீண்டும் இயக்கு"
+            "te" -> "మళ్లీ ప్లే చేయండి"
+            "or" -> "ପୁନଃ ଚଲାନ୍ତୁ"
+            "bn" -> "পুনরায় চালান"
+            else -> "Replay"
+        }
+
+    val sent: String
+        get() = when (languageCode) {
+            "hi" -> "भेजा गया"
+            "gu" -> "મોકલેલ"
+            "mr" -> "पाठवले"
+            "kn" -> "ಕಳುಹಿಸಲಾಗಿದೆ"
+            "ml" -> "അയച്ചു"
+            "ta" -> "அனுப்பப்பட்டது"
+            "te" -> "పంపబడింది"
+            "or" -> "ପଠାଯାଇଛି"
+            "bn" -> "পাঠানো হয়েছে"
+            else -> "Sent"
+        }
+
+    val received: String
+        get() = when (languageCode) {
+            "hi" -> "प्राप्त"
+            "gu" -> "પ્રાપ્ત"
+            "mr" -> "प्राप्त"
+            "kn" -> "ಸ್ವೀಕರಿಸಲಾಗಿದೆ"
+            "ml" -> "ലഭിച്ചു"
+            "ta" -> "பெறப்பட்டது"
+            "te" -> "స్వీకరించబడింది"
+            "or" -> "ପ୍ରାପ୍ତ"
+            "bn" -> "প্রাপ্ত"
+            else -> "Received"
+        }
+
+    private fun localized(
+        hindi: String,
+        gujarati: String,
+        marathi: String,
+        kannada: String,
+        malayalam: String,
+        tamil: String,
+        telugu: String,
+        odia: String,
+        bengali: String,
+        english: String
+    ): String = when (languageCode) {
+        "hi" -> hindi
+        "gu" -> gujarati
+        "mr" -> marathi
+        "kn" -> kannada
+        "ml" -> malayalam
+        "ta" -> tamil
+        "te" -> telugu
+        "or" -> odia
+        "bn" -> bengali
+        else -> english
+    }
+
+    val peerCountLabel: String
+        get() = localized("सक्रिय साथी", "સક્રિય પીઅર્સ", "सक्रिय सहकारी", "ಸಕ್ರಿಯ ಸಹಪಾಠಿಗಳು", "സജീവ പിയർമാർ", "செயலில் உள்ளவர்கள்", "క్రియాశీల సహచరులు", "ସକ୍ରିୟ ସାଥୀ", "সক্রিয় সহকর্মী", "peers")
+
+    val assignDeviceNamePrompt: String
+        get() = localized("डिवाइस के लिए परिचित नाम दें:", "ઉપકરણ માટે ઓળખી શકાય તેવું નામ આપો:", "डिव्हाइससाठी ओळखीचे नाव द्या:", "ಸಾಧನಕ್ಕೆ ಸುಲಭವಾದ ಹೆಸರನ್ನು ನೀಡಿ:", "ഉപകരണത്തിന് പരിചിതമായ പേര് നൽകുക:", "சாதனத்திற்கு ஒரு பெயரை வழங்கவும்:", "పరికరానికి గుర్తుండే పేరు ఇవ్వండి:", "ଉପକରଣ ପାଇଁ ଏକ ସହଜ ନାମ ଦିଅନ୍ତୁ:", "ডিভাইসের জন্য একটি পরিচিত নাম দিন:", "Assign a friendly name for device:")
+
+    val deviceLabel: String
+        get() = localized("डिवाइस", "ઉપકરણ", "डिव्हाइस", "ಸಾಧನ", "ഉപകരണം", "சாதனம்", "పరికరం", "ଉପକରଣ", "ডিভাইস", "Device")
+
+    val p2pMeshLink: String
+        get() = localized("P2P मेश लिंक", "P2P મેશ લિંક", "P2P मेश लिंक", "P2P ಮೆಶ್ ಲಿಂಕ್", "P2P മെഷ് ലിങ്ക്", "P2P மெஷ் இணைப்பு", "P2P మెష్ లింక్", "P2P ମେଶ୍ ଲିଙ୍କ୍", "P2P মেশ লিংক", "P2P Mesh Link")
+
+    val sttOn: String
+        get() = localized("STT: चालू", "STT: ચાલુ", "STT: सुरू", "STT: ಆನ್", "STT: ഓൺ", "STT: ஆன்", "STT: ఆన్", "STT: ଅନ୍", "STT: চালু", "STT: ON")
+
+    val sttOff: String
+        get() = localized("STT: बंद", "STT: બંધ", "STT: बंद", "STT: ಆಫ್", "STT: ഓഫ്", "STT: ஆஃப்", "STT: ఆఫ్", "STT: ଅଫ୍", "STT: বন্ধ", "STT: OFF")
+
+    val recordingHoldToTalk: String
+        get() = localized("रिकॉर्ड हो रहा है (बोलने के लिए दबाए रखें)", "રેકોર્ડ થઈ રહ્યું છે (બોલવા માટે દબાવી રાખો)", "रेकॉर्डिंग सुरू (बोलण्यासाठी दाबून ठेवा)", "ರೆಕಾರ್ಡಿಂಗ್ (ಮಾತನಾಡಲು ಒತ್ತಿಹಿಡಿಯಿರಿ)", "റെക്കോർഡിംഗ് (സംസാരിക്കാൻ അമർത്തിപ്പിടിക്കുക)", "பதிவு செய்யப்படுகிறது (பேச அழுத்திப் பிடிக்கவும்)", "రికార్డింగ్ (మాట్లాడటానికి నొక్కి పట్టుకోండి)", "ରେକର୍ଡ ହେଉଛି (କହିବା ପାଇଁ ଧରି ରଖନ୍ତୁ)", "রেকর্ড হচ্ছে (কথা বলতে চেপে ধরে রাখুন)", "RECORDING (HOLD TO TALK)")
+
+    val pushToTalkMode: String
+        get() = localized("पुश-टू-टॉक मोड", "પુશ-ટુ-ટોક મોડ", "पुश-टू-टॉक मोड", "ಪುಶ್-ಟು-ಟಾಕ್ ಮೋಡ್", "പുഷ്-ടു-ടോക്ക് മോഡ്", "புஷ்-டு-டாக் பயன்முறை", "పుష్-టు-టాక్ మోడ్", "ପୁଶ୍-ଟୁ-ଟକ୍ ମୋଡ୍", "পুশ-টু-টক মোড", "PUSH-TO-TALK MODE")
+
+    fun releaseToSend(durationSeconds: Int): String = localized("भेजने के लिए छोड़ें (${durationSeconds} सेकंड)", "મોકલવા માટે છોડો (${durationSeconds} સેકન્ડ)", "पाठवण्यासाठी सोडा (${durationSeconds} सेकंद)", "ಕಳುಹಿಸಲು ಬಿಡಿ (${durationSeconds} ಸೆಕೆಂಡ್)", "അയയ്ക്കാൻ വിടുക (${durationSeconds} സെക്കൻഡ്)", "அனுப்ப விடுங்கள் (${durationSeconds} வினாடி)", "పంపడానికి వదలండి (${durationSeconds} సెకన్లు)", "ପଠାଇବା ପାଇଁ ଛାଡ଼ନ୍ତୁ (${durationSeconds} ସେକେଣ୍ଡ)", "পাঠাতে ছেড়ে দিন (${durationSeconds} সেকেন্ড)", "Release to Send (${durationSeconds}s)")
+
+    val holdToTalk: String
+        get() = localized("बोलने के लिए दबाए रखें", "બોલવા માટે દબાવી રાખો", "बोलण्यासाठी दाबून ठेवा", "ಮಾತನಾಡಲು ಒತ್ತಿಹಿಡಿಯಿರಿ", "സംസാരിക്കാൻ അമർത്തിപ്പിടിക്കുക", "பேச அழுத்திப் பிடிக்கவும்", "మాట్లాడటానికి నొక్కి పట్టుకోండి", "କହିବା ପାଇଁ ଧରି ରଖନ୍ତୁ", "কথা বলতে চেপে ধরে রাখুন", "Hold to Talk")
+
+    val peerTransmittingBusy: String
+        get() = localized("साथी प्रसारित कर रहा है (व्यस्त)", "પીઅર પ્રસારણ કરી રહ્યું છે (વ્યસ્ત)", "सहकारी प्रसारित करत आहे (व्यस्त)", "ಸಹಪಾಠಿ ಪ್ರಸಾರದಲ್ಲಿದೆ (ವ್ಯಸ್ತ)", "പിയർ പ്രക്ഷേപണം ചെയ്യുന്നു (തിരക്കിലാണ്)", "பியர் ஒலிபரப்புகிறது (பிஸி)", "పీర్ ప్రసారం చేస్తోంది (బిజీ)", "ସାଥୀ ପ୍ରସାରଣ କରୁଛି (ବ୍ୟସ୍ତ)", "সহকর্মী সম্প্রচার করছে (ব্যস্ত)", "PEER TRANSMITTING (BUSY)")
+
+    val walkieTalkieHalfDuplex: String
+        get() = localized("वॉकी-टॉकी (हाफ-डुप्लेक्स)", "વૉકી-ટૉકી (હાફ-ડુપ્લેક્સ)", "वॉकी-टॉकी (हाफ-डुप्लेक्स)", "ವಾಕಿ-ಟಾಕಿ (ಹಾಫ್-ಡ್ಯುಪ್ಲೆಕ್ಸ್)", "വാക്കി-ടോക്കി (ഹാഫ്-ഡ്യൂപ്ലെക്സ്)", "வாக்கி-டாக்கி (அரை-இருவழி)", "వాకీ-టాకీ (హాఫ్-డ్యూప్లెక్స్)", "ୱାକି-ଟକି (ହାଫ୍-ଡୁପ୍ଲେକ୍ସ)", "ওয়াকি-টকি (হাফ-ডুপ্লেক্স)", "WALKIE-TALKIE (HALF-DUPLEX)")
+
+    val holdToTransmit: String
+        get() = localized("प्रसारित करने के लिए दबाए रखें", "પ્રસારણ માટે દબાવી રાખો", "प्रसारित करण्यासाठी दाबून ठेवा", "ಪ್ರಸಾರ ಮಾಡಲು ಒತ್ತಿಹಿಡಿಯಿರಿ", "പ്രക്ഷേപണം ചെയ്യാൻ അമർത്തിപ്പിടിക്കുക", "ஒலிபரப்ப அழுத்திப் பிடிக்கவும்", "ప్రసారం చేయడానికి నొక్కి పట్టుకోండి", "ପ୍ରସାରଣ ପାଇଁ ଧରି ରଖନ୍ତୁ", "সম্প্রচার করতে চেপে ধরে রাখুন", "Hold to Transmit")
+
+    val emergencyVoiceBroadcast: String
+        get() = localized("आपातकालीन SOS वॉइस प्रसारण", "કટોકટી SOS વૉઇસ પ્રસારણ", "तातडीचे SOS व्हॉइस प्रसारण", "ತುರ್ತು SOS ಧ್ವನಿ ಪ್ರಸಾರ", "അടിയന്തര SOS വോയ്സ് പ്രക്ഷേപണം", "அவசர SOS குரல் ஒலிபரப்பு", "అత్యవసర SOS వాయిస్ ప్రసారం", "ଜରୁରୀକାଳୀନ SOS ଭଏସ୍ ପ୍ରସାରଣ", "জরুরি SOS ভয়েস সম্প্রচার", "EMERGENCY SOS VOICE BROADCAST")
+
+    val emergencyPriorityDescription: String
+        get() = localized("मल्टी-हॉप फ्लड डिलीवरी के साथ सर्वोच्च मेश पैकेट प्राथमिकता", "મલ્ટી-હોપ ફ્લડ ડિલિવરી સાથે સર્વોચ્ચ મેશ પેકેટ પ્રાથમિકતા", "मल्टी-हॉप फ्लड डिलिव्हरीसह सर्वोच्च मेश पॅकेट प्राधान्य", "ಮಲ್ಟಿ-ಹಾಪ್ ಫ್ಲಡ್ ವಿತರಣೆಯೊಂದಿಗೆ ಅತ್ಯುನ್ನತ ಮೆಶ್ ಪ್ಯಾಕೆಟ್ ಆದ್ಯತೆ", "മൾട്ടി-ഹോപ്പ് ഫ്ലഡ് ഡെലിവറിയോടെയുള്ള പരമാവധി മെഷ് പാക്കറ്റ് മുൻഗണന", "பல-தாவல் வெள்ள விநியோகத்துடன் அதிகபட்ச மெஷ் பாக்கெட் முன்னுரிமை", "మల్టీ-హాప్ ఫ్లడ్ డెలివరీతో అత్యధిక మెష్ ప్యాకెట్ ప్రాధాన్యత", "ମଲ୍ଟି-ହପ୍ ଫ୍ଲଡ୍ ଡେଲିଭରୀ ସହ ସର୍ବୋଚ୍ଚ ମେଶ୍ ପ୍ୟାକେଟ୍ ପ୍ରାଥମିକତା", "মাল্টি-হপ ফ্লাড ডেলিভারিসহ সর্বোচ্চ মেশ প্যাকেট অগ্রাধিকার", "Highest mesh packet priority with multi-hop flood delivery")
+
+    val holdSosVoice: String
+        get() = localized("SOS वॉइस के लिए दबाए रखें", "SOS વૉઇસ માટે દબાવી રાખો", "SOS व्हॉइससाठी दाबून ठेवा", "SOS ಧ್ವನಿಗಾಗಿ ಒತ್ತಿಹಿಡಿಯಿರಿ", "SOS വോയ്സിനായി അമർത്തിപ്പിടിക്കുക", "SOS குரலுக்கு அழுத்திப் பிடிக்கவும்", "SOS వాయిస్ కోసం నొక్కి పట్టుకోండి", "SOS ଭଏସ୍ ପାଇଁ ଧରି ରଖନ୍ତୁ", "SOS ভয়েসের জন্য চেপে ধরে রাখুন", "Hold SOS Voice")
+
+    val sending: String
+        get() = localized("भेजा जा रहा है", "મોકલાઈ રહ્યું છે", "पाठवत आहे", "ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ", "അയയ്ക്കുന്നു", "அனுப்பப்படுகிறது", "పంపుతోంది", "ପଠାଯାଉଛି", "পাঠানো হচ্ছে", "Sending")
+
+    val handsFreeContinuousSpeech: String
+        get() = localized("हैंड्स-फ्री निरंतर भाषण (STT/TTS)", "હેન્ડ્સ-ફ્રી સતત સ્પીચ (STT/TTS)", "हँड्स-फ्री सतत भाषण (STT/TTS)", "ಹ್ಯಾಂಡ್ಸ್-ಫ್ರೀ ನಿರಂತರ ಧ್ವನಿ (STT/TTS)", "ഹാൻഡ്സ്-ഫ്രീ തുടർച്ചയായ സംഭാഷണം (STT/TTS)", "கைகளற்ற தொடர்ச்சியான பேச்சு (STT/TTS)", "హ్యాండ్స్-ఫ్రీ నిరంతర ప్రసంగం (STT/TTS)", "ହ୍ୟାଣ୍ଡସ୍-ଫ୍ରି ନିରନ୍ତର ଭାଷଣ (STT/TTS)", "হ্যান্ডস-ফ্রি ধারাবাহিক কথা (STT/TTS)", "HANDS-FREE CONTINUOUS SPEECH (STT/TTS)")
+
+    val transcriptLabel: String
+        get() = localized("प्रतिलेख", "ટ્રાન્સક્રિપ્ટ", "प्रतिलेख", "ಪ್ರತಿಲಿಪಿ", "ട്രാൻസ്ക്രിപ്റ്റ്", "படியெடுத்தல்", "ట్రాన్స్‌క్రిప్ట్", "ପ୍ରତିଲିପି", "প্রতিলিপি", "Transcript")
+
+    val initializing: String
+        get() = localized("प्रारंभ हो रहा है...", "પ્રારંભ થઈ રહ્યું છે...", "आरंभ होत आहे...", "ಪ್ರಾರಂಭಿಸಲಾಗುತ್ತಿದೆ...", "ആരംഭിക്കുന്നു...", "தொடங்குகிறது...", "ప్రారంభిస్తోంది...", "ଆରମ୍ଭ ହେଉଛି...", "শুরু হচ্ছে...", "Initializing...")
+
+    val packetsSent: String
+        get() = localized("भेजे गए पैकेट", "મોકલાયેલા પેકેટ્સ", "पाठवलेली पॅकेट्स", "ಕಳುಹಿಸಿದ ಪ್ಯಾಕೆಟ್‌ಗಳು", "അയച്ച പാക്കറ്റുകൾ", "அனுப்பப்பட்ட தொகுப்புகள்", "పంపిన ప్యాకెట్లు", "ପଠାଯାଇଥିବା ପ୍ୟାକେଟ୍", "পাঠানো প্যাকেট", "Packets Sent")
+
+    val packetsRelayed: String
+        get() = localized("रिले किए गए पैकेट", "રિલે થયેલા પેકેટ્સ", "रिले केलेली पॅकेट्स", "ರಿಲೇ ಮಾಡಿದ ಪ್ಯಾಕೆಟ್‌ಗಳು", "റിലേ ചെയ്ത പാക്കറ്റുകൾ", "ரிலே செய்யப்பட்ட தொகுப்புகள்", "రిలే చేసిన ప్యాకెట్లు", "ରିଲେ ହୋଇଥିବା ପ୍ୟାକେଟ୍", "রিলে করা প্যাকেট", "Packets Relayed")
+
+    val packetsReceived: String
+        get() = localized("प्राप्त पैकेट", "મેળવાયેલા પેકેટ્સ", "प्राप्त पॅकेट्स", "ಸ್ವೀಕರಿಸಿದ ಪ್ಯಾಕೆಟ್‌ಗಳು", "ലഭിച്ച പാക്കറ്റുകൾ", "பெறப்பட்ட தொகுப்புகள்", "అందుకున్న ప్యాకెట్లు", "ପ୍ରାପ୍ତ ପ୍ୟାକେଟ୍", "পাওয়া প্যাকেট", "Packets Received")
+
+    val activeBleLinks: String
+        get() = localized("सक्रिय BLE लिंक", "સક્રિય BLE લિંક્સ", "सक्रिय BLE लिंक्स", "ಸಕ್ರಿಯ BLE ಲಿಂಕ್‌ಗಳು", "സജീവ BLE ലിങ്കുകൾ", "செயலில் உள்ள BLE இணைப்புகள்", "యాక్టివ్ BLE లింకులు", "ସକ୍ରିୟ BLE ଲିଙ୍କ୍", "সক্রিয় BLE লিঙ্ক", "Active BLE Links")
+
+    val broadcastingEmergency: String
+        get() = localized("आपातकालीन SOS प्रसारित हो रहा है...", "કટોકટી SOS પ્રસારિત થઈ રહ્યું છે...", "तातडीचे SOS प्रसारित होत आहे...", "ತುರ್ತು SOS ಪ್ರಸಾರವಾಗುತ್ತಿದೆ...", "അടിയന്തര SOS പ്രക്ഷേപണം ചെയ്യുന്നു...", "அவசர SOS ஒலிபரப்பப்படுகிறது...", "అత్యవసర SOS ప్రసారం అవుతోంది...", "ଜରୁରୀକାଳୀନ SOS ପ୍ରସାରଣ ହେଉଛି...", "জরুরি SOS সম্প্রচার হচ্ছে...", "Broadcasting Emergency SOS...")
+
+    val emergencyDispatched: String
+        get() = localized("आपातकालीन SOS प्रसारण भेज दिया गया!", "કટોકટી SOS પ્રસારણ મોકલવામાં આવ્યું!", "तातडीचे SOS प्रसारण पाठवले!", "ತುರ್ತು SOS ಪ್ರಸಾರ ಕಳುಹಿಸಲಾಗಿದೆ!", "അടിയന്തര SOS പ്രക്ഷേപണം അയച്ചു!", "அவசர SOS ஒலிபரப்பு அனுப்பப்பட்டது!", "అత్యవసర SOS ప్రసారం పంపబడింది!", "ଜରୁରୀକାଳୀନ SOS ପ୍ରସାରଣ ପଠାଯାଇଛି!", "জরুরি SOS সম্প্রচার পাঠানো হয়েছে!", "Emergency SOS Broadcast Dispatched!")
+
+    val youLabel: String
+        get() = localized("आप", "તમે", "तुम्ही", "ನೀವು", "നിങ്ങൾ", "நீங்கள்", "మీరు", "ଆପଣ", "আপনি", "You")
+
+    val verifiedIdentity: String
+        get() = localized("सत्यापित क्रिप्टोग्राफ़िक पहचान", "ચકાસાયેલ ક્રિપ્ટોગ્રાફિક ઓળખ", "सत्यापित क्रिप्टोग्राफिक ओळख", "ಪರಿಶೀಲಿಸಿದ ಕ್ರಿಪ್ಟೋಗ್ರಾಫಿಕ್ ಗುರುತು", "പരിശോധിച്ച ക്രിപ്റ്റോഗ്രാഫിക് ഐഡന്റിറ്റി", "சரிபார்க்கப்பட்ட கிரிப்டோகிராஃபிக் அடையாளம்", "ధృవీకరించబడిన క్రిప్టోగ్రాఫిక్ గుర్తింపు", "ଯାଞ୍ଚ ହୋଇଥିବା କ୍ରିପ୍ଟୋଗ୍ରାଫିକ୍ ପରିଚୟ", "যাচাইকৃত ক্রিপ্টোগ্রাফিক পরিচয়", "Verified Cryptographic Identity")
+
+    val voiceNoteLabel: String
+        get() = localized("वॉइस नोट", "વૉઇસ નોટ", "व्हॉइस नोट", "ಧ್ವನಿ ಟಿಪ್ಪಣಿ", "വോയ്സ് നോട്ട്", "குரல் குறிப்பு", "వాయిస్ నోట్", "ଭଏସ୍ ନୋଟ୍", "ভয়েস নোট", "Voice Note")
+
+    val idleStatus: String
+        get() = localized("निष्क्रिय", "નિષ્ક્રિય", "निष्क्रिय", "ನಿಷ್ಕ್ರಿಯ", "നിഷ്‌ക്രിയം", "செயலற்றது", "నిష్క్రియ", "ନିଷ୍କ୍ରିୟ", "নিষ্ক্রিয়", "IDLE")
+
+    val listeningStatus: String
+        get() = localized("सुन रहा है", "સાંભળી રહ્યું છે", "ऐकत आहे", "ಆಲಿಸುತ್ತಿದೆ", "കേൾക്കുന്നു", "கேட்கிறது", "వింటోంది", "ଶୁଣୁଛି", "শুনছে", "LISTENING")
+
+    val speechDetectedStatus: String
+        get() = localized("भाषण मिला", "સ્પીચ મળી", "भाषण आढळले", "ಧ್ವನಿ ಪತ್ತೆಯಾಗಿದೆ", "സംഭാഷണം കണ്ടെത്തി", "பேச்சு கண்டறியப்பட்டது", "ప్రసంగం గుర్తించబడింది", "ଭାଷଣ ଚିହ୍ନଟ ହେଲା", "কথা শনাক্ত হয়েছে", "SPEECH DETECTED")
+
+    val transcribingStatus: String
+        get() = localized("लिखित रूपांतरण", "ટ્રાન્સક્રાઇબ થઈ રહ્યું છે", "लिप्यंतरण", "ಪಠ್ಯಕ್ಕೆ ಪರಿವರ್ತಿಸಲಾಗುತ್ತಿದೆ", "ട്രാൻസ്ക്രൈബ് ചെയ്യുന്നു", "படியெடுக்கப்படுகிறது", "ట్రాన్స్‌క్రైబ్ చేస్తోంది", "ଟ୍ରାନ୍ସକ୍ରାଇବ୍ ହେଉଛି", "ট্রান্সক্রাইব হচ্ছে", "TRANSCRIBING")
+
+    val thinkingStatus: String
+        get() = localized("सोच रहा है", "વિચારી રહ્યું છે", "विचार करत आहे", "ಯೋಚಿಸುತ್ತಿದೆ", "ചിന്തിക്കുന്നു", "சிந்திக்கிறது", "ఆలోచిస్తోంది", "ଚିନ୍ତା କରୁଛି", "ভাবছে", "THINKING")
+
+    val speakingStatus: String
+        get() = localized("बोल रहा है", "બોલી રહ્યું છે", "बोलत आहे", "ಮಾತನಾಡುತ್ತಿದೆ", "സംസാരിക്കുന്നു", "பேசுகிறது", "మాట్లాడుతోంది", "କହୁଛି", "কথা বলছে", "SPEAKING")
+
+    val connectedStatus: String
+        get() = localized("जुड़ा हुआ", "જોડાયેલ", "जोडलेले", "ಸಂಪರ್ಕಿಸಲಾಗಿದೆ", "ബന്ധിപ്പിച്ചു", "இணைக்கப்பட்டது", "కనెక్ట్ చేయబడింది", "ସଂଯୁକ୍ତ", "সংযুক্ত", "CONNECTED")
+
+    val disconnectedStatus: String
+        get() = localized("डिस्कनेक्टेड", "ડિસ્કનેક્ટ થયેલ", "डिस्कनेक्ट केलेले", "ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ", "വിച്ഛേദിച്ചു", "துண்டிக்கப்பட்டது", "డిస్‌కనెక్ట్ చేయబడింది", "ବିଚ୍ଛିନ୍ନ", "বিচ্ছিন্ন", "DISCONNECTED")
+
+    val typeMessage: String
+        get() = localized("संदेश लिखें...", "સંદેશ લખો...", "संदेश लिहा...", "ಸಂದೇಶವನ್ನು ಟೈಪ್ ಮಾಡಿ...", "സന്ദേശം ടൈപ്പ് ചെയ്യുക...", "செய்தியை தட்டச்சு செய்க...", "సందేశాన్ని టైప్ చేయండి...", "ବାର୍ତ୍ତା ଲେଖନ୍ତୁ...", "বার্তা লিখুন...", "Type a message...")
+
+    val connectAction: String
+        get() = localized("जोड़ें", "જોડાઓ", "जोडा", "ಸಂಪರ್ಕಿಸಿ", "ബന്ധിപ്പിക്കുക", "இணைக்கவும்", "కనెక్ట్ చేయండి", "ସଂଯୋଗ କରନ୍ତୁ", "সংযুক্ত করুন", "Connect")
+
+    val pairingQrCode: String
+        get() = localized("पेयरिंग क्यूआर कोड", "પેરિંગ ક્યૂઆર કોડ", "पेअरिंग क्यूआर कोड", "ಜೋಡಣೆ ಕ್ಯೂಆರ್ ಕೋಡ್", "പെയറിംഗ് ക്യുആർ കോഡ്", "இணைக்கும் QR குறியீடு", "పెయిరింగ్ క్యూఆర్ కోడ్", "ଯୋଡ଼ିବା କ୍ୟୁଆର୍ କୋଡ୍", "পেয়ারিং কিউআর কোড", "Pairing QR Code")
+
+    val exportIdentity: String
+        get() = localized("निर्यात करें", "નિકાસ કરો", "निर्यात करा", "ರಫ್ತು ಮಾಡಿ", "എക്സ്പോർട്ട് ചെയ്യുക", "ஏற்றுமதி செய்க", "ఎగుమతి చేయండి", "ରପ୍ତାନି କରନ୍ତୁ", "রপ্তানি করুন", "Export")
+
+    val identityExported: String
+        get() = localized("पहचान क्लिपबोर्ड पर कॉपी की गई", "ઓળખ ક્લિપબોર્ડ પર કૉપિ થઈ", "ओळख क्लिपबोर्डवर कॉपी केली", "ಗುರುತನ್ನು ಕ್ಲಿಪ್‌ಬೋರ್ಡ್‌ಗೆ ನಕಲಿಸಲಾಗಿದೆ", "ഐഡന്റിറ്റി ക്ലിപ്പ്ബോർഡിലേക്ക് പകർത്തി", "அடையாளம் கிளிப்போர்டுக்கு நகலெடுக்கப்பட்டது", "గుర్తింపు క్లిప్‌బోర్డ్‌కి కాపీ చేయబడింది", "ପରିଚୟ କ୍ଲିପବୋର୍ଡକୁ କପି ହୋଇଛି", "পরিচয় ক্লিপবোর্ডে অনুলিপি করা হয়েছে", "Identity copied to clipboard")
+
+    val importIdentity: String
+        get() = localized("आयात करें", "આયાત કરો", "आयात करा", "ಆಮದು ಮಾಡಿ", "ഇമ്പോർട്ട് ചെയ്യുക", "இறக்குமதி செய்க", "దిగుమతి చేయండి", "ଆମଦାନୀ କରନ୍ତୁ", "আমদানি করুন", "Import")
+
+    val importIdentityRequested: String
+        get() = localized("पहचान आयात करने का अनुरोध किया गया", "ઓળખ આયાત કરવાની વિનંતી કરી", "ओळख आयात करण्याची विनंती केली", "ಗುರುತನ್ನು ಆಮದು ಮಾಡಲು ವಿನಂತಿಸಲಾಗಿದೆ", "ഐഡന്റിറ്റി ഇമ്പോർട്ട് അഭ്യർത്ഥിച്ചു", "அடையாள இறக்குமதி கோரப்பட்டது", "గుర్తింపు దిగుమతి అభ్యర్థించబడింది", "ପରିଚୟ ଆମଦାନୀ ଅନୁରୋଧ କରାଗଲା", "পরিচয় আমদানির অনুরোধ করা হয়েছে", "Import identity requested")
+
+    val resetIdentity: String
+        get() = localized("रीसेट करें", "રીસેટ કરો", "रीसेट करा", "ಮರುಹೊಂದಿಸಿ", "റീസെറ്റ് ചെയ്യുക", "மீட்டமைக்கவும்", "రీసెట్ చేయండి", "ପୁନଃସେଟ୍ କରନ୍ତୁ", "রিসেট করুন", "Reset")
+
+    val identityResetToast: String
+        get() = localized("पहचान सफलतापूर्वक रीसेट की गई", "ઓળખ સફળતાપૂર્વક રીસેટ થઈ", "ओळख यशस्वीरित्या रीसेट केली", "ಗುರುತನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಮರುಹೊಂದಿಸಲಾಗಿದೆ", "ഐഡന്റിറ്റി വിജയകരമായി റീസെറ്റ് ചെയ്തു", "அடையாளம் வெற்றிகரமாக மீட்டமைக்கப்பட்டது", "గుర్తింపు విజయవంతంగా రీసెట్ చేయబడింది", "ପରିଚୟ ସଫଳତାର ସହ ପୁନଃସେଟ୍ ହେଲା", "পরিচয় সফলভাবে রিসেট করা হয়েছে", "Identity reset successfully")
+
+    val emergencyDataWipe: String
+        get() = localized("आपातकालीन डेटा वाइप", "કટોકટી ડેટા વાઇપ", "तातडीचा डेटा नष्ट करा", "ತುರ್ತು ಡೇಟಾ ಅಳಿಸಿ", "അടിയന്തര ഡാറ്റ വൈപ്പ്", "அவசர தரவு அழிப்பு", "అత్యవసర డేటా తుడిచివేత", "ଜରୁରୀକାଳୀନ ଡାଟା ଲିଭାନ୍ତୁ", "জরুরি ডেটা মুছে ফেলুন", "EMERGENCY DATA WIPE")
+
+    val emergencyWipeToast: String
+        get() = localized("सारा डेटा सफलतापूर्वक मिटा दिया गया", "બધો ડેટા સફળતાપૂર્વક ભૂંસી નાખ્યો", "सर्व डेटा यशस्वीरित्या हटवला", "ಎಲ್ಲಾ ಡೇಟಾವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಅಳಿಸಲಾಗಿದೆ", "എല്ലാ ഡാറ്റയും വിജയകരമായി മായ്‌ച്ചു", "அனைத்து தரவுகளும் வெற்றிகரமாக அழிக்கப்பட்டன", "మొత్తం డేటా విజయవంతంగా తుడిచివేయబడింది", "ସମସ୍ତ ଡାଟା ସଫଳତାର ସହ ଲିଭାଗଲା", "সমস্ত ডেটা সফলভাবে মুছে ফেলা হয়েছে", "All data wiped successfully")
+
+    val noContactsFound: String
+        get() = localized("कोई संपर्क नहीं मिला", "કોઈ સંપર્કો મળ્યા નથી", "कोणतेही संपर्क आढळले नाहीत", "ಯಾವುದೇ ಸಂಪರ್ಕಗಳು ಕಂಡುಬಂದಿಲ್ಲ", "ബന്ധങ്ങളൊന്നും കണ്ടെത്തിയില്ല", "தொடர்புகள் எதுவும் இல்லை", "పరిచయాలు కనుగొనబడలేదు", "କୌଣସି ଯୋଗାଯୋଗ ମିଳିଲା ନାହିଁ", "কোনো পরিচিতি পাওয়া যায়নি", "No contacts found")
+
+    val newChat: String
+        get() = localized("नया चैट", "નવી ચેટ", "नवीन चॅट", "ಹೊಸ ಚಾಟ್", "പുതിയ ചാറ്റ്", "புதிய அரட்டை", "కొత్త చాట్", "ନୂତନ ଚାଟ୍", "নতুন চ্যাট", "New Chat")
+
+    val noChatsFound: String
+        get() = localized("अभी कोई बातचीत नहीं है", "હજુ સુધી કોઈ વાતચીત નથી", "अद्याप कोणतेही संभाषण नाही", "ಇನ್ನೂ ಯಾವುದೇ ಸಂಭಾಷಣೆಗಳಿಲ್ಲ", "ഇതുവരെ സംഭാഷണങ്ങളൊന്നുമില്ല", "இன்னும் உரையாடல்கள் எதுவும் இல்லை", "ఇంకా సంభాషణలు లేవు", "ଏପର୍ଯ୍ୟନ୍ତ କୌଣସି କଥାବାର୍ତ୍ତା ନାହିଁ", "এখনো কোনো কথোপকথন নেই", "No conversations yet")
+
+    val allUiStrings: List<String>
+        get() = listOf(
+            navDiscovery, navComms, navHistory, navStats, appName, offlineCommsMesh,
+            meshActiveReady, meshActive, emergencyBroadcast, initializeSystem,
+            enterTacticalMesh, selectPrimaryLanguage, selectLanguageSubtitle,
+            continueButton, requiredPermissions, permissionsSubtitle, permMicTitle,
+            permMicDesc, permBtTitle, permBtDesc, permWifiTitle, permWifiDesc,
+            grantAndStart, scanningMesh, searchingLocalNodes, availableNodes,
+            signalStrength, leader, connected, connecting, offline, settingsTitle,
+            settingsSubtitle, userProfileTitle, operatorName, enterNamePlaceholder,
+            tacticalCallsign, callsignPlaceholder, saveProfile, savedToSystem,
+            languageSettingsTitle, appInterfaceLanguage, speechInputLanguage,
+            receiverOutputLanguage, receiverTranslationTitle, receiverTranslationDesc,
+            pttToggleTitle, pttToggleDesc, statePersisted, statePending,
+            compactRepresentation, resetOnboarding, holdToBroadcast, pushToTalk,
+            secureMesh, recordingAudio, transmitting, emergencyAlertTitle,
+            emergencyAlertDesc, broadcastAlertNow, cancel, transcriptsTitle,
+            searchTranscripts, noTranscripts, clearHistory, diagnosticsTitle,
+            meshLatency, connectionSettings, devMode, peersActive, contacts,
+            meshBroadcast, directPeer, allMesh, replay, sent, received,
+            peerCountLabel, assignDeviceNamePrompt, deviceLabel, p2pMeshLink,
+            sttOn, sttOff, recordingHoldToTalk, pushToTalkMode, holdToTalk,
+            peerTransmittingBusy, walkieTalkieHalfDuplex, holdToTransmit,
+            emergencyVoiceBroadcast, emergencyPriorityDescription, holdSosVoice,
+            sending, handsFreeContinuousSpeech, transcriptLabel, initializing,
+            packetsSent, packetsRelayed, packetsReceived, activeBleLinks,
+            broadcastingEmergency, emergencyDispatched,
+            youLabel, verifiedIdentity, voiceNoteLabel, idleStatus, listeningStatus,
+            speechDetectedStatus, transcribingStatus, thinkingStatus, speakingStatus,
+            connectedStatus, disconnectedStatus,
+            typeMessage, connectAction, pairingQrCode, exportIdentity, identityExported,
+            importIdentity, importIdentityRequested, resetIdentity, identityResetToast,
+            emergencyDataWipe, emergencyWipeToast, noContactsFound, newChat, noChatsFound
+        )
+
     companion object {
 
         val English = AppStrings(
@@ -913,17 +1237,25 @@ data class AppStrings(
             "te" to Telugu,
             "kn" to Kannada,
             "ml" to Malayalam,
-            "or" to Odia,
-            "pa" to Punjabi
+            "or" to Odia
         )
 
         /**
          * Resolves the [AppStrings] instance corresponding to the given language code.
-         * Falls back safely to [English] if the code is unknown or invalid.
+         * Supported UI language codes must have a dedicated translation pack.
+         * Unknown codes (including Punjabi) are not part of the UI selector.
          */
         fun forLanguage(code: String?): AppStrings {
             if (code.isNullOrBlank()) return English
-            return languageStringsMap[code.lowercase().trim()] ?: English
+            val normalized = code.lowercase().trim()
+            val isSupportedUiLanguage = AppLanguageState.supportedLanguages.any {
+                it.code.equals(normalized, ignoreCase = true)
+            }
+            if (isSupportedUiLanguage) {
+                return languageStringsMap[normalized]
+                    ?: error("Missing AppStrings translations for UI language code: $normalized")
+            }
+            return English
         }
 
         /**
@@ -950,7 +1282,7 @@ data class AppStrings(
 /**
  * CompositionLocal providing active [AppStrings] to the Compose hierarchy.
  */
-val LocalAppStrings = staticCompositionLocalOf { AppStrings.English }
+val LocalAppStrings = compositionLocalOf(neverEqualPolicy<AppStrings>()) { AppStrings.English }
 
 /**
  * Convenience accessor for the current [AppStrings] in Compose.

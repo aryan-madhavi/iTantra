@@ -30,7 +30,7 @@ class SettingsViewModel(
     private val _publicKeyFingerprint = MutableStateFlow<String>("")
     val publicKeyFingerprint: StateFlow<String> = _publicKeyFingerprint.asStateFlow()
 
-    private val _trustStatus = MutableStateFlow<String>("Verified Cryptographic Identity")
+    private val _trustStatus = MutableStateFlow("")
     val trustStatus: StateFlow<String> = _trustStatus.asStateFlow()
 
     val meshStatus: StateFlow<MeshStatus> = meshRepository.meshStatus

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,11 +37,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -52,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.common.AstraLog
 import com.astramesh.ui.components.AstraTopBar
+import com.astramesh.ui.i18n.AppLanguageState
+import com.astramesh.ui.i18n.appStrings
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
 import com.astramesh.ui.theme.AstraCyan
@@ -65,6 +73,7 @@ import com.astramesh.ui.theme.AstraTextSecondary
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    appLanguageState: AppLanguageState,
     onShowQrClicked: () -> Unit
 ) {
     val context = LocalContext.current
@@ -75,11 +84,14 @@ fun SettingsScreen(
     val fingerprint by viewModel.publicKeyFingerprint.collectAsState()
     val trustStatus by viewModel.trustStatus.collectAsState()
     val meshStatus by viewModel.meshStatus.collectAsState()
+    val selectedAppLanguage by appLanguageState.language.collectAsState()
+    val strings = appStrings()
+    var languageMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             AstraTopBar(
-                title = "Settings & Identity",
+                title = strings.settingsTitle,
                 connectedPeersCount = meshStatus.activeConnectionsCount
             )
         },
@@ -92,6 +104,61 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AstraSurfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = strings.appInterfaceLanguage,
+                        color = AstraTextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = selectedAppLanguage.nativeName,
+                        color = AstraTextSecondary,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { languageMenuExpanded = true },
+                        modifier = Modifier.testTag("settings_language_selector")
+                    ) {
+                        Text(strings.appInterfaceLanguage)
+                    }
+                    if (languageMenuExpanded) {
+                        AlertDialog(
+                            onDismissRequest = { languageMenuExpanded = false },
+                            title = { Text(strings.appInterfaceLanguage) },
+                            text = {
+                                Column {
+                                    AppLanguageState.supportedLanguages.forEach { language ->
+                                        TextButton(
+                                            onClick = {
+                                                appLanguageState.setLanguage(language)
+                                                languageMenuExpanded = false
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = "${language.nativeName} (${language.englishName})",
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {}
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // Cryptographic Identity Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -112,7 +179,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Cryptographic Identity",
+                                text = strings.userProfileTitle,
                                 color = AstraTextPrimary,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
@@ -126,7 +193,7 @@ fun SettingsScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = trustStatus,
+                                    text = trustStatus.ifBlank { strings.verifiedIdentity },
                                     color = AstraEmerald,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
@@ -139,14 +206,14 @@ fun SettingsScreen(
 
                     // Permanent Device ID
                     Text(
-                        text = "Permanent Device ID",
+                        text = strings.tacticalCallsign,
                         color = AstraTextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = permanentId?.toHex() ?: "Initializing...",
+                        text = permanentId?.toHex() ?: strings.initializing,
                         color = AstraCyan,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -158,7 +225,7 @@ fun SettingsScreen(
                     // Public Key Fingerprint
                     if (fingerprint.isNotEmpty()) {
                         Text(
-                            text = "Public Key Fingerprint",
+                            text = strings.diagnosticsTitle,
                             color = AstraTextSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -177,7 +244,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = displayName,
                         onValueChange = viewModel::updateDisplayName,
-                        label = { Text("Display Name", color = AstraTextSecondary) },
+                        label = { Text(strings.operatorName, color = AstraTextSecondary) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = AstraTextPrimary,
@@ -201,7 +268,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.QrCode, contentDescription = null, tint = Color.Black)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Show Pairing QR Code", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(strings.pairingQrCode, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -215,7 +282,7 @@ fun SettingsScreen(
                             onClick = {
                                 val exported = viewModel.exportIdentity()
                                 clipboardManager.setText(AnnotatedString(exported))
-                                Toast.makeText(context, "Permanent Identity copied to clipboard", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, strings.identityExported, Toast.LENGTH_SHORT).show()
                                 AstraLog.d("SettingsScreen", "UI Identity exported to clipboard")
                             },
                             modifier = Modifier.weight(1f),
@@ -223,12 +290,12 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.FileUpload, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Export", color = AstraCyan, fontSize = 12.sp)
+                            Text(strings.exportIdentity, color = AstraCyan, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
                             onClick = {
-                                Toast.makeText(context, "Identity import: Read pairing QR or file", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, strings.importIdentityRequested, Toast.LENGTH_SHORT).show()
                                 AstraLog.d("SettingsScreen", "UI Import identity requested")
                             },
                             modifier = Modifier.weight(1f),
@@ -236,13 +303,13 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.Key, contentDescription = null, tint = AstraEmerald, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Import", color = AstraEmerald, fontSize = 12.sp)
+                            Text(strings.importIdentity, color = AstraEmerald, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
                             onClick = {
                                 viewModel.resetIdentity {
-                                    Toast.makeText(context, "Cryptographic Identity Reset", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, strings.identityResetToast, Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -250,7 +317,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = AstraCrimson, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reset", color = AstraCrimson, fontSize = 12.sp)
+                            Text(strings.resetIdentity, color = AstraCrimson, fontSize = 12.sp)
                         }
                     }
                 }
@@ -266,17 +333,17 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "LIVE MESH METRICS",
+                        text = strings.meshActive,
                         color = AstraCyan,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    MetricRow("Packets Sent", "${meshStatus.packetsSent}")
-                    MetricRow("Packets Relayed", "${meshStatus.packetsRelayed}")
-                    MetricRow("Packets Received", "${meshStatus.packetsReceived}")
-                    MetricRow("Active BLE Links", "${meshStatus.activeConnectionsCount}")
+                    MetricRow(strings.packetsSent, "${meshStatus.packetsSent}")
+                    MetricRow(strings.packetsRelayed, "${meshStatus.packetsRelayed}")
+                    MetricRow(strings.packetsReceived, "${meshStatus.packetsReceived}")
+                    MetricRow(strings.activeBleLinks, "${meshStatus.activeConnectionsCount}")
                 }
             }
 
@@ -286,7 +353,7 @@ fun SettingsScreen(
             Button(
                 onClick = {
                     viewModel.emergencyWipeAllData {
-                        Toast.makeText(context, "All keys wiped", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, strings.emergencyWipeToast, Toast.LENGTH_LONG).show()
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson),
@@ -295,7 +362,7 @@ fun SettingsScreen(
             ) {
                 Icon(Icons.Default.DeleteForever, contentDescription = null, tint = Color.White)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("PANIC: Wipe All Keys & Messages", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(strings.emergencyDataWipe, color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
     }

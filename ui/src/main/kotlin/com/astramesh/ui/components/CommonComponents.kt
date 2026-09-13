@@ -38,6 +38,7 @@ import com.astramesh.ui.theme.AstraEmerald
 import com.astramesh.ui.theme.AstraOutline
 import com.astramesh.ui.theme.AstraSurface
 import com.astramesh.ui.theme.AstraTextPrimary
+import com.astramesh.ui.i18n.appStrings
 
 @Composable
 fun PulsingStatusDot(
@@ -104,6 +105,7 @@ fun AstraTopBar(
     connectedPeersCount: Int = 0,
     actions: @Composable () -> Unit = {}
 ) {
+    val strings = appStrings()
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -117,7 +119,7 @@ fun AstraTopBar(
                 PulsingStatusDot(isActive = connectedPeersCount > 0)
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "$connectedPeersCount peers",
+                    text = "$connectedPeersCount ${strings.peerCountLabel}",
                     color = AstraCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
