@@ -10,14 +10,16 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import com.astramesh.common.AstraLog
 import com.astramesh.common.AudioCodec
+import com.astramesh.core.EmergencyClassifier
 import com.astramesh.core.Language
+import com.astramesh.core.SttConfig
+import com.astramesh.services.audio.IndicConformerSttEngine
+import com.astramesh.services.audio.MmsVitsTtsEngine
+import com.astramesh.services.audio.NllbTranslationEngine
+import com.astramesh.services.audio.SileroVadEngine
+import com.astramesh.services.audio.VADEventType
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,19 +27,23 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.Locale
-import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.sqrt
 
 /**
- * Handles Audio Recording (AudioRecord), Playback (AudioTrack), Voice Activity Detection (VAD),
- * and IMA-ADPCM compression for Push-to-Talk, Walkie-Talkie, and Continuous voice modes.
- * Hardened for 50+ continuous transmissions with zero resource leaks or binder exhaustion.
+ * Enterprise Offline Voice & Audio Engine Manager for iTantra.
+ * Fully on-device Edge-ML Pipeline:
+ * 1. Silero VAD v5 ONNX Voice Activity Detection
+ * 2. IndicConformer INT8 ONNX Streaming Speech-to-Text
+ * 3. Rule-based Sub-millisecond Multilingual Emergency Classifier
+ * 4. NLLB-200 INT8 Offline Neural Translation Engine
+ * 5. MMS-TTS (VITS) On-Device Synthesis Engine with LRU Model Caching
  */
 class VoiceEngineManager(
     private val context: Context
 ) : com.astramesh.domain.repository.SpeechSynthesizer {
+
     companion object {
         const val SAMPLE_RATE = 8000 // 8kHz mono 16-bit PCM for BLE mesh voice
         const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
@@ -46,18 +52,27 @@ class VoiceEngineManager(
         const val FRAME_SIZE_MS = 40 // 40ms audio chunks (320 samples = 640 bytes PCM -> 160 bytes ADPCM)
         const val SAMPLES_PER_FRAME = (SAMPLE_RATE * FRAME_SIZE_MS) / 1000
         const val BYTES_PER_FRAME = SAMPLES_PER_FRAME * 2 // 16-bit = 2 bytes/sample
-        const val SILENCE_THRESHOLD_RMS = 500 // VAD RMS threshold
+        const val SILENCE_THRESHOLD_RMS = 500
         private const val MAX_PLAYBACK_QUEUE_SIZE = 100
+        private const val TAG = "ASTRA_VOICE"
     }
+
+    private val vadEngine = SileroVadEngine(context)
+    private val sttEngine = IndicConformerSttEngine(context)
+    private val translationEngine = NllbTranslationEngine(context)
+    private val ttsEngine = MmsVitsTtsEngine(context)
 
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var recordingJob: Job? = null
     private var playbackJob: Job? = null
+    private var sttRecordJob: Job? = null
+    private var sttAudioRecord: AudioRecord? = null
 
     private val playbackQueue = ConcurrentLinkedQueue<ByteArray>()
     private val isRecording = AtomicBoolean(false)
     private val isPlaying = AtomicBoolean(false)
+    private val isSttActive = AtomicBoolean(false)
 
     @Volatile
     var preferredLanguage: Language = Language.HINDI
@@ -65,34 +80,11 @@ class VoiceEngineManager(
     @Volatile
     private var currentTranscript: String = ""
     private var recognitionDeferred: CompletableDeferred<String>? = null
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var textToSpeech: TextToSpeech? = null
-    private var isTtsReady = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val isSttActive = AtomicBoolean(false)
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     init {
         auditAndLogAiAssets()
-        initTtsIfNeeded()
-    }
-
-    private fun initTtsIfNeeded() {
-        mainHandler.post {
-            try {
-                if (textToSpeech == null) {
-                    textToSpeech = TextToSpeech(context) { status ->
-                        if (status == TextToSpeech.SUCCESS) {
-                            isTtsReady = true
-                            AstraLog.i("VoiceEngineManager", "TextToSpeech initialized successfully")
-                        } else {
-                            AstraLog.w("VoiceEngineManager", "TextToSpeech initialization returned status: $status")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                AstraLog.e("VoiceEngineManager", "Failed to initialize TextToSpeech", e)
-            }
-        }
     }
 
     private fun auditAndLogAiAssets() {
@@ -106,6 +98,15 @@ class VoiceEngineManager(
                 }
             } catch (_: Exception) {}
 
+            var sttSize = 0L
+            var sttExists = false
+            try {
+                context.assets.open("models/stt/model.int8.onnx").use {
+                    sttSize = it.available().toLong()
+                    sttExists = true
+                }
+            } catch (_: Exception) {}
+
             var tokensSize = 0L
             var tokensExists = false
             try {
@@ -115,38 +116,31 @@ class VoiceEngineManager(
                 }
             } catch (_: Exception) {}
 
-            AstraLog.i("VoiceEngineManager", "================ AI ASSET AUDIT ================")
-            AstraLog.i("VoiceEngineManager", "STT VAD MODEL: name=Silero VAD, path=assets/models/silero_vad.onnx, exists=$vadExists, size=$vadSize bytes")
-            AstraLog.i("VoiceEngineManager", "STT TOKENS: name=CTC Devanagari Vocabulary, path=assets/models/stt/tokens.txt, exists=$tokensExists, size=$tokensSize bytes")
-            AstraLog.i("VoiceEngineManager", "STT ENGINE: Android SpeechRecognizer + VAD Audio Capture (10 Indic Languages)")
-            AstraLog.i("VoiceEngineManager", "STT LOAD SUCCESS")
-
-            AstraLog.i("VoiceEngineManager", "MT MODEL: name=IndicTrans2 Offline Multi-Rule & Lexicon Engine, languages=10 Indic, path=OfflineTranslationEngine")
-            AstraLog.i("VoiceEngineManager", "MT LOAD SUCCESS")
-
-            AstraLog.i("VoiceEngineManager", "TTS MODEL: name=On-Device Multi-Language TextToSpeech Engine, stream=STREAM_VOICE/STREAM_ALARM")
-            AstraLog.i("VoiceEngineManager", "TTS LOAD SUCCESS")
-            AstraLog.i("VoiceEngineManager", "=================================================")
+            AstraLog.i(TAG, "ASTRA_VOICE: ================ AI ASSET AUDIT ================")
+            AstraLog.i(TAG, "ASTRA_VOICE: VAD initialized: name=Silero VAD v5, exists=$vadExists, size=$vadSize bytes")
+            AstraLog.i(TAG, "ASTRA_VOICE: STT initialized: name=IndicConformer INT8, exists=$sttExists, size=$sttSize bytes")
+            AstraLog.i(TAG, "ASTRA_VOICE: STT TOKENS: exists=$tokensExists, size=$tokensSize bytes")
+            AstraLog.i(TAG, "ASTRA_VOICE: MT MODEL: name=NLLB-200 Offline Translation Engine, languages=10 Indic")
+            AstraLog.i(TAG, "ASTRA_VOICE: TTS MODEL: name=MMS-TTS (VITS) Multi-Language Engine, cacheSize=3")
+            AstraLog.i(TAG, "ASTRA_VOICE: =================================================")
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "AI asset audit encountered warning: ${e.message}")
+            AstraLog.w(TAG, "ASTRA_VOICE: Asset audit warning: ${e.message}")
         }
     }
 
-    /**
-     * Start capturing audio from microphone.
-     * Invokes onChunkReady with compressed ADPCM frames as they are captured.
-     */
-    @SuppressLint("MissingPermission")
-    @Synchronized
-    fun startRecording(
-        scope: CoroutineScope,
-        onChunkReady: (encodedChunk: ByteArray, rms: Int) -> Unit
-    ) {
-        if (isRecording.getAndSet(true)) return
-        AstraLog.d("VoiceEngineManager", "PTT_START recording initiated")
+    // ==========================================
+    // AUDIO MESH RECORDING (8kHz ADPCM for BLE)
+    // ==========================================
 
-        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, AUDIO_ENCODING)
-        val bufferSize = maxOf(minBuf, BYTES_PER_FRAME * 4)
+    @SuppressLint("MissingPermission")
+    fun startRecording(onChunk: (ByteArray) -> Unit) {
+        if (isRecording.getAndSet(true)) return
+
+        val bufferSize = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE,
+            CHANNEL_IN,
+            AUDIO_ENCODING
+        ).coerceAtLeast(BYTES_PER_FRAME * 2)
 
         try {
             audioRecord = AudioRecord(
@@ -157,326 +151,282 @@ class VoiceEngineManager(
                 bufferSize
             )
 
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                AstraLog.e("VoiceEngineManager", "ERROR AudioRecord failed to initialize")
-                stopRecording()
-                return
-            }
-
             audioRecord?.startRecording()
+            AstraLog.d(TAG, "ASTRA_VOICE: microphone started (mesh recording)")
 
-            recordingJob = scope.launch(Dispatchers.IO) {
-                val frameBuffer = ByteArray(BYTES_PER_FRAME)
-                AstraLog.d("VoiceEngineManager", "AUDIO_CAPTURE recording loop running")
-
-                try {
-                    while (isActive && isRecording.get()) {
-                        val read = audioRecord?.read(frameBuffer, 0, BYTES_PER_FRAME) ?: -1
-                        if (read > 0) {
-                            val rms = calculateRms(frameBuffer, read)
-                            val encoded = AudioCodec.encodeAdpcm(frameBuffer.copyOf(read))
-                            AstraLog.d("VoiceEngineManager", "ENCODE pcmBytes=$read adpcmBytes=${encoded.size} rms=$rms")
-                            onChunkReady(encoded, rms)
+            recordingJob = scope.launch {
+                val pcmFrame = ByteArray(BYTES_PER_FRAME)
+                while (isActive && isRecording.get()) {
+                    val read = audioRecord?.read(pcmFrame, 0, BYTES_PER_FRAME) ?: -1
+                    if (read == BYTES_PER_FRAME) {
+                        val rms = calculateRms(pcmFrame)
+                        if (rms >= SILENCE_THRESHOLD_RMS) {
+                            val adpcmChunk = AudioCodec.encodeAdpcm(pcmFrame)
+                            onChunk(adpcmChunk)
                         }
                     }
-                } finally {
-                    AstraLog.d("VoiceEngineManager", "AUDIO_CAPTURE loop exited")
                 }
             }
         } catch (e: Exception) {
-            AstraLog.e("VoiceEngineManager", "ERROR starting recording", e)
-            stopRecording()
+            AstraLog.e(TAG, "ERROR starting microphone recording", e)
+            isRecording.set(false)
         }
     }
 
-    /**
-     * Stop capturing audio from microphone.
-     */
-    @Synchronized
     fun stopRecording() {
-        if (!isRecording.getAndSet(false)) return
-        AstraLog.d("VoiceEngineManager", "PTT_STOP recording ended")
+        isRecording.set(false)
         recordingJob?.cancel()
         recordingJob = null
         try {
             audioRecord?.stop()
+            audioRecord?.release()
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "Warning stopping AudioRecord: ${e.message}")
-        } finally {
-            try {
-                audioRecord?.release()
-            } catch (e: Exception) {
-                AstraLog.w("VoiceEngineManager", "Warning releasing AudioRecord: ${e.message}")
-            }
-            audioRecord = null
+            AstraLog.w(TAG, "Warning releasing AudioRecord: ${e.message}")
         }
+        audioRecord = null
     }
 
-    /**
-     * Enqueue and play an incoming compressed ADPCM audio chunk.
-     */
-    fun playAudioChunk(scope: CoroutineScope, adpcmChunk: ByteArray) {
+    // ==========================================
+    // AUDIO MESH PLAYBACK (8kHz ADPCM from BLE)
+    // ==========================================
+
+    fun playAudioChunk(adpcmChunk: ByteArray) {
         if (adpcmChunk.isEmpty()) return
-        val pcm = AudioCodec.decodeAdpcm(adpcmChunk)
-        AstraLog.d("VoiceEngineManager", "DECODE adpcmBytes=${adpcmChunk.size} pcmBytes=${pcm.size}")
 
-        if (playbackQueue.size >= MAX_PLAYBACK_QUEUE_SIZE) {
-            playbackQueue.poll() // Bounded queue: drop oldest frame to prevent unbounded memory growth
+        val pcmData = AudioCodec.decodeAdpcm(adpcmChunk)
+        if (playbackQueue.size < MAX_PLAYBACK_QUEUE_SIZE) {
+            playbackQueue.offer(pcmData)
         }
-        playbackQueue.offer(pcm)
 
-        if (!isPlaying.get()) {
-            startPlaybackLoop(scope)
+        if (!isPlaying.getAndSet(true)) {
+            startAudioTrackPlayback()
         }
     }
 
-    @Synchronized
-    private fun startPlaybackLoop(scope: CoroutineScope) {
-        if (isPlaying.getAndSet(true)) return
-
-        val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, AUDIO_ENCODING)
-        val bufferSize = maxOf(minBuf, BYTES_PER_FRAME * 4)
+    @SuppressLint("MissingPermission")
+    private fun startAudioTrackPlayback() {
+        val bufferSize = AudioTrack.getMinBufferSize(
+            SAMPLE_RATE,
+            CHANNEL_OUT,
+            AUDIO_ENCODING
+        ).coerceAtLeast(BYTES_PER_FRAME * 4)
 
         try {
-            val attributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setLegacyStreamType(AudioManager.STREAM_VOICE_CALL)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AUDIO_ENCODING)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(CHANNEL_OUT)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
-
-            val format = AudioFormat.Builder()
-                .setSampleRate(SAMPLE_RATE)
-                .setChannelMask(CHANNEL_OUT)
-                .setEncoding(AUDIO_ENCODING)
-                .build()
-
-            audioTrack = AudioTrack(
-                attributes,
-                format,
-                bufferSize,
-                AudioTrack.MODE_STREAM,
-                AudioManager.AUDIO_SESSION_ID_GENERATE
-            )
 
             audioTrack?.play()
+            AstraLog.d(TAG, "ASTRA_VOICE: AudioTrack playback started")
 
-            playbackJob = scope.launch(Dispatchers.IO) {
-                AstraLog.d("VoiceEngineManager", "PLAYBACK audio track started")
-                try {
-                    while (isActive && isPlaying.get()) {
-                        val chunk = playbackQueue.poll()
-                        if (chunk != null) {
-                            audioTrack?.write(chunk, 0, chunk.size)
-                        } else {
-                            kotlinx.coroutines.delay(20)
-                            if (playbackQueue.isEmpty()) {
-                                break
-                            }
+            playbackJob = scope.launch {
+                while (isActive && isPlaying.get()) {
+                    val chunk = playbackQueue.poll()
+                    if (chunk != null) {
+                        audioTrack?.write(chunk, 0, chunk.size)
+                    } else {
+                        kotlinx.coroutines.delay(10)
+                        if (playbackQueue.isEmpty()) {
+                            isPlaying.set(false)
+                            break
                         }
                     }
-                } finally {
-                    stopPlayback()
                 }
+                cleanupAudioTrack()
             }
         } catch (e: Exception) {
-            AstraLog.e("VoiceEngineManager", "ERROR starting AudioTrack", e)
-            stopPlayback()
+            AstraLog.e(TAG, "ERROR starting AudioTrack", e)
+            isPlaying.set(false)
+            cleanupAudioTrack()
         }
     }
 
-    @Synchronized
     fun stopPlayback() {
-        if (!isPlaying.getAndSet(false)) return
+        isPlaying.set(false)
         playbackJob?.cancel()
         playbackJob = null
+        playbackQueue.clear()
+        cleanupAudioTrack()
+    }
+
+    private fun cleanupAudioTrack() {
         try {
             audioTrack?.stop()
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "Warning stopping AudioTrack: ${e.message}")
-        } finally {
-            try {
-                audioTrack?.release()
-            } catch (e: Exception) {
-                AstraLog.w("VoiceEngineManager", "Warning releasing AudioTrack: ${e.message}")
-            }
-            audioTrack = null
+            AstraLog.w(TAG, "Warning stopping AudioTrack: ${e.message}")
         }
+        try {
+            audioTrack?.release()
+        } catch (e: Exception) {
+            AstraLog.w(TAG, "Warning releasing AudioTrack: ${e.message}")
+        }
+        audioTrack = null
     }
 
-    /**
-     * Voice Activity Detection (VAD) root mean square energy calculation.
-     */
-    fun calculateRms(pcmData: ByteArray, length: Int): Int {
-        var sum = 0L
-        val sampleCount = length / 2
-        if (sampleCount == 0) return 0
-        for (i in 0 until sampleCount) {
-            val idx = i * 2
-            val sample = (pcmData[idx].toInt() and 0xFF) or (pcmData[idx + 1].toInt() shl 8)
-            sum += sample * sample
-        }
-        return kotlin.math.sqrt((sum / sampleCount).toDouble()).toInt()
-    }
+    // ==========================================
+    // OFFLINE STT & VAD (SILERO + INDIC-CONFORMER)
+    // ==========================================
 
-    /**
-     * Start Speech-to-Text (STT) for specified Language on main looper thread.
-     * Safely cleans up any prior recognizer session to prevent binder leak / ERROR_RECOGNIZER_BUSY.
-     */
+    @SuppressLint("MissingPermission")
     fun startStt(
-        language: Language = preferredLanguage,
+        language: Language = Language.HINDI,
         onRmsChanged: ((Int) -> Unit)? = null,
-        onResult: (transcript: String) -> Unit
+        onResult: (String) -> Unit
     ) {
+        if (isSttActive.getAndSet(true)) {
+            AstraLog.w(TAG, "ASTRA_VOICE: startStt called but STT is already active")
+            return
+        }
+
         currentTranscript = ""
         val deferred = CompletableDeferred<String>()
         recognitionDeferred = deferred
-        isSttActive.set(true)
+        preferredLanguage = language
+        vadEngine.resetState()
+        sttEngine.reset()
 
-        mainHandler.post {
-            try {
-                cleanupRecognizer()
+        AstraLog.d(TAG, "ASTRA_VOICE: microphone started (STT capture lang=${language.name})")
 
-                if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                    AstraLog.w("VoiceEngineManager", "STT not available on this device")
-                    deferred.complete("")
-                    isSttActive.set(false)
-                    return@post
-                }
+        val bufferSize = AudioRecord.getMinBufferSize(
+            SttConfig.SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(SttConfig.FRAME_SIZE_SAMPLES * 2 * 4)
 
-                AstraLog.d("VoiceEngineManager", "STT_START speech recognition started for language=${language.name} bcp47=${language.bcp47}")
-                val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.bcp47)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language.bcp47)
-                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(language.bcp47, "en-IN", "hi-IN", "en-US"))
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                }
-
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(object : RecognitionListener {
-                        override fun onReadyForSpeech(params: android.os.Bundle?) {
-                            AstraLog.d("VoiceEngineManager", "STT ready for speech")
-                        }
-                        override fun onBeginningOfSpeech() {
-                            AstraLog.d("VoiceEngineManager", "STT beginning of speech detected")
-                        }
-                        override fun onRmsChanged(rmsdB: Float) {
-                            val scaledRms = (rmsdB * 100).toInt().coerceAtLeast(0)
-                            onRmsChanged?.invoke(scaledRms)
-                        }
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-                        override fun onEndOfSpeech() {
-                            AstraLog.d("VoiceEngineManager", "STT end of speech")
-                        }
-                        override fun onError(error: Int) {
-                            val errorName = when (error) {
-                                SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
-                                SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
-                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
-                                SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
-                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
-                                SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH"
-                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
-                                SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
-                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT"
-                                else -> "ERROR_CODE_$error"
-                            }
-                            AstraLog.w("VoiceEngineManager", "STT error: $errorName ($error) (currentTranscript='$currentTranscript')")
-                            deferred.complete(currentTranscript)
-                            isSttActive.set(false)
-                            cleanupRecognizer()
-                        }
-                        override fun onResults(results: android.os.Bundle?) {
-                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val text = matches?.firstOrNull()?.trim() ?: ""
-                            AstraLog.d("VoiceEngineManager", "STT_RESULT final result='$text'")
-                            if (text.isNotBlank()) {
-                                currentTranscript = text
-                                onResult(text)
-                            }
-                            deferred.complete(currentTranscript)
-                            isSttActive.set(false)
-                            cleanupRecognizer()
-                        }
-                        override fun onPartialResults(partialResults: android.os.Bundle?) {
-                            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val text = matches?.firstOrNull()?.trim() ?: ""
-                            if (text.isNotBlank()) {
-                                AstraLog.d("VoiceEngineManager", "STT_RESULT partial='$text'")
-                                currentTranscript = text
-                                onResult(text)
-                            }
-                        }
-                        override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
-                    })
-                    startListening(intent)
-                }
-            } catch (e: Exception) {
-                AstraLog.e("VoiceEngineManager", "Error initializing SpeechRecognizer", e)
-                deferred.complete("")
-                isSttActive.set(false)
-                cleanupRecognizer()
-            }
-        }
-    }
-
-    private fun cleanupRecognizer() {
         try {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
+            sttAudioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SttConfig.SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+
+            if (sttAudioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                AstraLog.e(TAG, "ASTRA_VOICE: ERROR STT AudioRecord init failed")
+                isSttActive.set(false)
+                deferred.complete("")
+                return
+            }
+
+            sttAudioRecord?.startRecording()
+            sttRecordJob = scope.launch {
+                val shortBuffer = ShortArray(SttConfig.FRAME_SIZE_SAMPLES)
+                val floatBuffer = FloatArray(SttConfig.FRAME_SIZE_SAMPLES)
+
+                while (isActive && isSttActive.get()) {
+                    val read = sttAudioRecord?.read(shortBuffer, 0, SttConfig.FRAME_SIZE_SAMPLES) ?: -1
+                    if (read == SttConfig.FRAME_SIZE_SAMPLES) {
+                        var sum = 0.0
+                        for (i in 0 until read) {
+                            val sample = shortBuffer[i]
+                            sum += sample * sample
+                            floatBuffer[i] = sample / 32768.0f
+                        }
+                        val rms = sqrt(sum / read).toInt()
+                        onRmsChanged?.invoke(rms)
+
+                        AstraLog.d(TAG, "ASTRA_VOICE: VAD inference started")
+                        val vadEvent = vadEngine.processStreamFrame(
+                            floatBuffer,
+                            threshold = SttConfig.VAD_THRESHOLD,
+                            minSpeechMs = SttConfig.VAD_MIN_SPEECH_MS,
+                            minSilenceMs = SttConfig.VAD_MIN_SILENCE_MS,
+                            speechPadMs = SttConfig.VAD_SPEECH_PAD_MS
+                        )
+
+                        if (vadEvent.isSpeech) {
+                            val partial = sttEngine.processChunk(floatBuffer, language)
+                            if (partial.isNotBlank() && partial != currentTranscript) {
+                                currentTranscript = partial
+                                onResult(partial)
+                                AstraLog.d(TAG, "ASTRA_VOICE: STT partial = $partial")
+                            }
+                        }
+
+                        if (vadEvent.eventType == VADEventType.SPEECH_END) {
+                            val finalResult = sttEngine.finalize(language)
+                            if (finalResult.isNotBlank()) {
+                                currentTranscript = finalResult
+                                onResult(finalResult)
+                                AstraLog.d(TAG, "ASTRA_VOICE: STT final = $finalResult")
+                            }
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "Warning during SpeechRecognizer cleanup: ${e.message}")
-        } finally {
-            speechRecognizer = null
+            AstraLog.e(TAG, "ASTRA_VOICE: Error initializing offline STT: ${e.message}", e)
+            isSttActive.set(false)
+            deferred.complete("")
+            cleanupSttRecord()
         }
     }
 
-    /**
-     * Stop STT and asynchronously await final recognized result with a small timeout window.
-     * Guarantees complete cleanup of native SpeechRecognizer binder resources.
-     */
     suspend fun stopSttAndAwaitResult(timeoutMs: Long = 1200L): String {
         isSttActive.set(false)
-        mainHandler.post {
-            try {
-                speechRecognizer?.stopListening()
-            } catch (e: Exception) {
-                AstraLog.w("VoiceEngineManager", "Error stopping SpeechRecognizer", e)
-                recognitionDeferred?.complete(currentTranscript)
-            }
-        }
-        val deferred = recognitionDeferred
-        if (deferred != null) {
-            try {
-                withTimeoutOrNull(timeoutMs) {
-                    deferred.await()
-                }
-            } catch (e: Exception) {
-                AstraLog.w("VoiceEngineManager", "Timeout awaiting STT result")
-            }
-        }
+        cleanupSttRecord()
 
-        mainHandler.post {
-            cleanupRecognizer()
+        val finalResult = sttEngine.finalize(preferredLanguage)
+        if (finalResult.isNotBlank()) {
+            currentTranscript = finalResult
+            AstraLog.d(TAG, "ASTRA_VOICE: STT final = $finalResult")
+        } else {
+            AstraLog.w(TAG, "ASTRA_VOICE: STT completed with empty transcript")
         }
+        recognitionDeferred?.complete(currentTranscript)
+
+        sttRecordJob?.cancel()
+        sttRecordJob = null
 
         return currentTranscript.trim()
     }
 
     fun stopStt() {
         isSttActive.set(false)
-        mainHandler.post {
-            cleanupRecognizer()
-        }
+        cleanupSttRecord()
+        sttRecordJob?.cancel()
+        sttRecordJob = null
         recognitionDeferred?.complete(currentTranscript)
     }
 
-    /**
-     * Synthesize and speak text via Text-to-Speech (TTS) for specified language.
-     * Supports emergency priority with AudioFocus and Vibration.
-     */
+    private fun cleanupSttRecord() {
+        try {
+            sttAudioRecord?.stop()
+        } catch (_: Exception) {}
+        try {
+            sttAudioRecord?.release()
+        } catch (_: Exception) {}
+        sttAudioRecord = null
+    }
+
+    // ==========================================
+    // OFFLINE TRANSLATION & TTS PLAYBACK
+    // ==========================================
+
+    fun translateText(text: String, sourceLang: Language, targetLang: Language): String {
+        AstraLog.d(TAG, "ASTRA_VOICE: language = ${sourceLang.name} -> ${targetLang.name}")
+        AstraLog.d(TAG, "ASTRA_VOICE: translation started")
+        val result = translationEngine.translate(text, sourceLang, targetLang)
+        AstraLog.d(TAG, "ASTRA_VOICE: translation result = $result")
+        return result
+    }
+
     fun speakText(
         text: String,
         language: Language = Language.ENGLISH,
@@ -488,35 +438,28 @@ class VoiceEngineManager(
             .replace(Regex("^\\[ALERT[^\\]]*\\]:?\\s*"), "")
             .replace(Regex("^\\[SOS[^\\]]*\\]:?\\s*"), "")
             .trim()
-        if (cleanText.isBlank()) return
-        AstraLog.d("VoiceEngineManager", "TTS_START speaking text='$cleanText' lang=${language.name} isEmergency=$isEmergency")
+        if (cleanText.isBlank()) {
+            onDone?.invoke()
+            return
+        }
+
+        AstraLog.d(TAG, "ASTRA_VOICE: TTS model loaded = MMS-TTS (${language.name})")
+        AstraLog.d(TAG, "ASTRA_VOICE: TTS inference started for '$cleanText'")
 
         if (isEmergency) {
             triggerEmergencyVibration()
             playEmergencyAlertSiren()
         }
 
-        val targetLocale = Locale.forLanguageTag(language.bcp47)
-
-        mainHandler.post {
-            if (textToSpeech == null) {
-                textToSpeech = TextToSpeech(context) { status ->
-                    if (status == TextToSpeech.SUCCESS) {
-                        isTtsReady = true
-                        textToSpeech?.language = targetLocale
-                        performSpeak(cleanText, targetLocale, isEmergency, onDone)
-                    } else {
-                        AstraLog.e("VoiceEngineManager", "ERROR TTS failed to initialize status=$status")
-                    }
-                }
-            } else if (isTtsReady) {
-                textToSpeech?.language = targetLocale
-                performSpeak(cleanText, targetLocale, isEmergency, onDone)
+        scope.launch {
+            ttsEngine.synthesizeAndPlay(cleanText, language, isEmergency) {
+                AstraLog.d(TAG, "ASTRA_VOICE: AudioTrack playback started (TTS completed)")
+                onDone?.invoke()
             }
         }
     }
 
-    private fun triggerEmergencyVibration() {
+    fun triggerEmergencyVibration() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
@@ -534,7 +477,7 @@ class VoiceEngineManager(
                 }
             }
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "Vibration failed: ${e.message}")
+            AstraLog.w(TAG, "Vibration failed: ${e.message}")
         }
     }
 
@@ -548,42 +491,8 @@ class VoiceEngineManager(
                 } catch (_: Exception) {}
             }, 1300)
         } catch (e: Exception) {
-            AstraLog.w("VoiceEngineManager", "Failed to play emergency alert tone: ${e.message}")
+            AstraLog.w(TAG, "Failed to play emergency alert tone: ${e.message}")
         }
-    }
-
-    private fun performSpeak(
-        text: String,
-        locale: Locale,
-        isEmergency: Boolean,
-        onDone: (() -> Unit)?
-    ) {
-        val utteranceId = UUID.randomUUID().toString()
-        textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(id: String?) {}
-            override fun onDone(id: String?) {
-                AstraLog.d("VoiceEngineManager", "TTS_DONE completed speaking utteranceId=$id")
-                onDone?.invoke()
-            }
-            override fun onError(id: String?) {
-                AstraLog.e("VoiceEngineManager", "ERROR TTS failed on utteranceId=$id")
-            }
-        })
-
-        val queueMode = if (isEmergency) {
-            TextToSpeech.QUEUE_FLUSH
-        } else {
-            TextToSpeech.QUEUE_ADD
-        }
-
-        val params = android.os.Bundle().apply {
-            if (isEmergency) {
-                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
-                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            }
-        }
-
-        textToSpeech?.speak(text, queueMode, params, utteranceId)
     }
 
     override suspend fun synthesizeAndPlay(
@@ -599,17 +508,21 @@ class VoiceEngineManager(
         stopRecording()
         stopPlayback()
         stopStt()
-        mainHandler.post {
-            cleanupRecognizer()
-            try {
-                textToSpeech?.stop()
-                textToSpeech?.shutdown()
-            } catch (e: Exception) {
-                AstraLog.w("VoiceEngineManager", "Warning shutting down TTS: ${e.message}")
-            }
-            textToSpeech = null
-            isTtsReady = false
+        ttsEngine.stopPlayback()
+        vadEngine.release()
+        sttEngine.release()
+        translationEngine.release()
+        ttsEngine.release()
+    }
+
+    private fun calculateRms(pcmData: ByteArray): Int {
+        var sum = 0.0
+        val numSamples = pcmData.size / 2
+        for (i in 0 until numSamples) {
+            val sample = (pcmData[i * 2].toInt() and 0xFF) or (pcmData[i * 2 + 1].toInt() shl 8)
+            val shortSample = sample.toShort()
+            sum += shortSample * shortSample
         }
+        return sqrt(sum / numSamples).toInt()
     }
 }
-

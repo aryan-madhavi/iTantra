@@ -195,7 +195,7 @@ class ConversationViewModel(
             val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
 
             val transcript = _liveTranscript.value.trim()
-            val textToSend = if (recognizedText.isNotBlank()) {
+            var rawText = if (recognizedText.isNotBlank()) {
                 recognizedText
             } else if (transcript.isNotBlank()) {
                 transcript
@@ -205,6 +205,15 @@ class ConversationViewModel(
             } else {
                 ""
             }
+
+            // If user selected English speech, translate Devanagari phonetics to English text
+            if (rawText.isNotBlank() && _speechLanguage.value == com.astramesh.core.Language.ENGLISH && rawText.any { it in 'ऀ'..'ॿ' }) {
+                val translatedEng = voiceEngineManager?.translateText(rawText, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
+                if (translatedEng.isNotBlank()) {
+                    rawText = translatedEng
+                }
+            }
+            val textToSend = rawText
 
             if (textToSend.isNotBlank()) {
                 val isEmergency = (mode == VoiceMode.EMERGENCY)

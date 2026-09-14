@@ -10,6 +10,15 @@ CLAUDE.md
 AGENTS.md
 .claude/
 
+## Gradle build caches & lock files
+.gradle/
+build/
+**/build/
+local.properties
+
+## IDE
+.idea/
+*.iml
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint
 *.xccheckout

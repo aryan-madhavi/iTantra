@@ -1,0 +1,17 @@
+{
+  "format": "onnx",
+  "precision": "fp32",
+  "architecture": "VITS",
+  "language": "kn",
+  "model_id": "facebook/mms-tts-kan",
+  "sample_rate": 16000,
+  "runtime": "onnxruntime",
+  "input_names": [
+    "input_ids",
+    "attention_mask"
+  ],
+  "output_names": [
+    "waveform"
+  ],
+  "note": "MMS-TTS VITS ONNX export. Validate audio before INT8 quantization."
+}

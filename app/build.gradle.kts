@@ -44,6 +44,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    androidResources {
+        // noCompress removed to prevent >2GB zip integer overflow
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 dependencies {
@@ -87,35 +97,3 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
 }
-
-afterEvaluate {
-    tasks.matching { it.name == "installDebug" }.configureEach {
-        doLast {
-            println("[INSTALL] Ensuring APK is installed on all connected ADB devices...")
-            try {
-                val adb = android.adbExecutable.absolutePath
-                val devicesProcess = ProcessBuilder(adb, "devices").start()
-                val output = devicesProcess.inputStream.bufferedReader().readText()
-                devicesProcess.waitFor()
-                val deviceSerials = output.lines()
-                    .filter { it.contains("\tdevice") }
-                    .map { it.split("\t")[0].trim() }
-
-                val apkFile = file("build/outputs/apk/debug/app-debug.apk")
-                if (apkFile.exists()) {
-                    deviceSerials.forEach { serial ->
-                        println("[INSTALL] Installing on device: $serial")
-                        val installProcess = ProcessBuilder(adb, "-s", serial, "install", "-r", apkFile.absolutePath).start()
-                        val installOut = installProcess.inputStream.bufferedReader().readText()
-                        installProcess.waitFor()
-                        println("[INSTALL] Device $serial result: ${installOut.trim()}")
-                    }
-                }
-            } catch (e: Exception) {
-                println("[INSTALL] Multi-device installation error: ${e.message}")
-            }
-        }
-    }
-}
-
-

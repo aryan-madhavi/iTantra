@@ -602,7 +602,7 @@ fun HomeScreen(
                                     scope.launch {
                                         val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
 
-                                        val transcriptToSend = if (recognizedText.isNotBlank()) {
+                                        var rawTranscript = if (recognizedText.isNotBlank()) {
                                             recognizedText
                                         } else if (liveTranscript.isNotBlank()) {
                                             liveTranscript
@@ -615,6 +615,14 @@ fun HomeScreen(
                                         } else {
                                             ""
                                         }
+
+                                        if (rawTranscript.isNotBlank() && selectedLanguage == com.astramesh.core.Language.ENGLISH && rawTranscript.any { it in 'ऀ'..'ॿ' }) {
+                                            val translatedEng = voiceEngineManager?.translateText(rawTranscript, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
+                                            if (translatedEng.isNotBlank()) {
+                                                rawTranscript = translatedEng
+                                            }
+                                        }
+                                        val transcriptToSend = rawTranscript
 
                                         if (transcriptToSend.isNotBlank()) {
                                             AstraLog.d("HomeScreen", "PTT_SEND mode=${communicationMode.name} text='$transcriptToSend' lang=${selectedLanguage.name}")

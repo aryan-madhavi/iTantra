@@ -1,12 +1,25 @@
 package com.astramesh.core
 
+import java.util.regex.Pattern
+
 /**
  * Multilingual Rule-Based Emergency & Distress Classifier.
- * Evaluates speech transcripts across 10 languages and identifies emergency priority.
+ * Evaluates speech transcripts across 10 languages and identifies emergency priority (P0 vs P2).
+ * Strictly zero-ML, on-device, sub-millisecond keyword matching engine.
  */
 object EmergencyClassifier {
 
-    private val KEYWORDS: Map<Language, List<String>> = mapOf(
+    data class ClassificationResult(
+        val isEmergency: Boolean,
+        val priority: String, // "P0" or "P2"
+        val matchedKeywords: List<String>,
+        val matchedEmergency: List<String>,
+        val matchedLocation: List<String>,
+        val matchedNumbers: List<String>,
+        val needsReview: Boolean = false
+    )
+
+    private val BUILTIN_KEYWORDS: Map<Language, List<String>> = mapOf(
         Language.HINDI to listOf(
             "मदद", "सहायता", "बचाओ", "आग", "खतरा", "आपातकाल", "फंसा", "फंसी", "फंसे",
             "चिकित्सा", "एम्बुलेंस", "धुआं", "धमाका", "गैस लीक", "मलबे", "पुलिस", "घायल",
@@ -51,36 +64,98 @@ object EmergencyClassifier {
         )
     )
 
+    private val BUILTIN_LOCATIONS: Map<Language, List<String>> = mapOf(
+        Language.HINDI to listOf("मंजिल", "फ़्लोर", "इमारत", "भवन", "उत्तर", "दक्षिण", "पूर्व", "पश्चिम", "सीढ़ी", "कमरा", "ब्लॉक", "बेसमेंट", "छत", "गेट"),
+        Language.ENGLISH to listOf("floor", "building", "north", "south", "east", "west", "basement", "roof", "staircase", "lobby", "gate", "room", "zone", "block")
+    )
+
     fun isEmergency(text: String, language: Language = Language.ENGLISH): Boolean {
         if (text.isBlank()) return false
-        val lowerText = text.lowercase().trim()
+        val result = classifyDetailed(text, language.code)
+        return result.isEmergency
+    }
 
-        // Universal check for SOS / HELP
-        if (lowerText.contains("sos") || lowerText.contains("help") || lowerText.contains("emergency")) {
-            return true
+    fun classify(text: String, language: Language = Language.ENGLISH): MessageType {
+        return if (isEmergency(text, language)) MessageType.ALERT else MessageType.NORMAL
+    }
+
+    fun classifyDetailed(text: String, languageCode: String = "en"): ClassificationResult {
+        if (text.isBlank()) {
+            return ClassificationResult(
+                isEmergency = false,
+                priority = "P2",
+                matchedKeywords = emptyList(),
+                matchedEmergency = emptyList(),
+                matchedLocation = emptyList(),
+                matchedNumbers = emptyList()
+            )
         }
 
-        // Language specific keywords
-        val terms = KEYWORDS[language] ?: KEYWORDS[Language.ENGLISH] ?: emptyList()
-        for (term in terms) {
-            if (lowerText.contains(term.lowercase())) {
-                return true
+        val normalized = text.lowercase().trim()
+        val lang = Language.fromCode(languageCode)
+        val matchedEmergency = mutableListOf<String>()
+        val matchedLocation = mutableListOf<String>()
+        val matchedNumbers = mutableListOf<String>()
+
+        // Split tokens supporting Latin and Indic Unicode scripts
+        val tokenPattern = Pattern.compile("[\\w\\u0900-\\u0DFF]+")
+        val matcher = tokenPattern.matcher(normalized)
+        val tokens = mutableSetOf<String>()
+        while (matcher.find()) {
+            tokens.add(matcher.group())
+        }
+
+        fun matchesTerm(term: String): Boolean {
+            val clean = term.trim().lowercase()
+            if (clean.isEmpty()) return false
+            if (clean.contains(" ")) {
+                val escaped = Pattern.quote(clean)
+                val phrasePattern = Pattern.compile("(?:\\b|\\s|^)" + escaped + "(?:\\b|\\s|$|[।,?!])")
+                return phrasePattern.matcher(normalized).find()
+            } else {
+                return tokens.contains(clean) || normalized.split(Regex("\\s+")).contains(clean)
             }
         }
 
-        // Cross-check all languages in case speaker spoke mixed words (e.g. Hindi distress in English mode)
-        for (list in KEYWORDS.values) {
-            for (term in list) {
-                if (lowerText.contains(term.lowercase())) {
-                    return true
+        // 1. Language-specific emergency terms
+        val targetTerms = BUILTIN_KEYWORDS[lang] ?: BUILTIN_KEYWORDS[Language.ENGLISH] ?: emptyList()
+        for (term in targetTerms) {
+            if (matchesTerm(term)) {
+                matchedEmergency.add(term)
+            }
+        }
+
+        // 2. Cross-language distress terms (in case of code-switching / multilingual speech)
+        for ((otherLang, terms) in BUILTIN_KEYWORDS) {
+            if (otherLang == lang) continue
+            for (term in terms) {
+                if (matchesTerm(term)) {
+                    matchedEmergency.add(term)
                 }
             }
         }
 
-        return false
-    }
+        // 3. Location terms
+        val locations = BUILTIN_LOCATIONS[lang] ?: BUILTIN_LOCATIONS[Language.ENGLISH] ?: emptyList()
+        for (loc in locations) {
+            if (matchesTerm(loc)) {
+                matchedLocation.add(loc)
+            }
+        }
 
-    fun classify(text: String, language: Language): MessageType {
-        return if (isEmergency(text, language)) MessageType.ALERT else MessageType.NORMAL
+        val uniqueEmergency = matchedEmergency.distinct()
+        val uniqueLocation = matchedLocation.distinct()
+        val allMatched = (uniqueEmergency + uniqueLocation + matchedNumbers).distinct()
+        val isEmergency = uniqueEmergency.isNotEmpty()
+        val priority = if (isEmergency) "P0" else "P2"
+
+        return ClassificationResult(
+            isEmergency = isEmergency,
+            priority = priority,
+            matchedKeywords = allMatched,
+            matchedEmergency = uniqueEmergency,
+            matchedLocation = uniqueLocation,
+            matchedNumbers = matchedNumbers
+        )
     }
 }
