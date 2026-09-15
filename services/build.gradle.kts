@@ -35,6 +35,7 @@ dependencies {
     implementation(libs.onnxruntime.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.onnxruntime)
     testImplementation(libs.truth)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)

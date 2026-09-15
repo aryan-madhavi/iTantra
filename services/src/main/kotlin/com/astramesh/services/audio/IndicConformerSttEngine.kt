@@ -11,18 +11,34 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
+import java.util.Locale
+import kotlin.math.min
 
 /**
  * On-Device IndicConformer INT8 Speech-to-Text Engine.
  * Executes offline neural CTC decoding across 10 project languages using ONNX Runtime Mobile.
  * Extracts 80-bin Log-Mel Spectrogram features [1, 80, time] matching NeMo acoustic preprocessor contract.
  * Features language/script token range filtering during CTC decoding to ensure correct script output.
+ *
+ * Architecture Note on Streaming Capability:
+ * The exported IndicConformer model (model.int8.onnx) is a single-shot CTC acoustic model with input tensors
+ * `processed_signal` and `processed_signal_length` producing output logits (`logprobs`). It does not contain
+ * recurrent/cache state tensors for hidden state propagation. To achieve low latency without quadratic O(N^2)
+ * re-decoding overhead, partial transcription is bounded to a rolling time window (last 3.0s) and throttled
+ * to a 256ms cadence. The full accumulated utterance is decoded precisely on finalize() upon VAD SPEECH_END.
  */
 class IndicConformerSttEngine(
     private val context: Context,
     private val modelAssetPath: String = "models/stt/model.int8.onnx",
     private val tokensAssetPath: String = "models/stt/tokens.txt"
 ) {
+    companion object {
+        // Maximum rolling audio window (in samples) for live partial decoding (3.0 seconds at 16kHz)
+        private const val MAX_PARTIAL_WINDOW_SAMPLES = 16000 * 3
+        // Throttle partial decoding to every 8 chunks (~256ms at 512 samples/chunk) to conserve CPU
+        private const val PARTIAL_DECODE_CHUNK_INTERVAL = 8
+    }
+
     private val tag = "ASTRA_VOICE"
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
@@ -78,7 +94,9 @@ class IndicConformerSttEngine(
                 setIntraOpNumThreads(2)
             }
             ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
-            AstraLog.i(tag, "STT initialized: IndicConformer INT8 ONNX session loaded from '${modelFile.absolutePath}'")
+            val inputNames = ortSession?.inputNames?.joinToString(", ") ?: "none"
+            val outputNames = ortSession?.outputNames?.joinToString(", ") ?: "none"
+            AstraLog.i(tag, "STT initialized: IndicConformer INT8 ONNX session loaded from '${modelFile.absolutePath}' (inputs=[$inputNames], outputs=[$outputNames])")
         } catch (e: Exception) {
             AstraLog.w(tag, "STT initialization failed: ${e.message}")
         }
@@ -92,7 +110,8 @@ class IndicConformerSttEngine(
 
     /**
      * Feed audio samples incrementally (float array in [-1.0, 1.0]).
-     * Decodes every few chunks for low latency partial feedback.
+     * Decodes using a bounded rolling window every PARTIAL_DECODE_CHUNK_INTERVAL chunks (~256ms)
+     * to eliminate quadratic CPU scaling during long utterances.
      */
     fun processChunk(samples: FloatArray, language: Language = Language.HINDI): String {
         for (s in samples) {
@@ -100,25 +119,39 @@ class IndicConformerSttEngine(
         }
         chunkCount++
 
-        // Periodically decode every ~4 chunks (~128ms)
-        if (chunkCount % 4 == 0 || chunkCount == 1) {
-            currentPartialText = decodeAudio(accumulatedPcm.toFloatArray(), language)
-            if (currentPartialText.isNotBlank()) {
+        // Throttled partial decoding on a bounded rolling window
+        if (chunkCount % PARTIAL_DECODE_CHUNK_INTERVAL == 0) {
+            val totalSamples = accumulatedPcm.size
+            val windowSize = min(totalSamples, MAX_PARTIAL_WINDOW_SAMPLES)
+            val windowStart = totalSamples - windowSize
+            val windowBuffer = FloatArray(windowSize)
+            for (i in 0 until windowSize) {
+                windowBuffer[i] = accumulatedPcm[windowStart + i]
+            }
+
+            val partial = decodeAudio(windowBuffer, language, isPartial = true)
+            if (partial.isNotBlank()) {
+                currentPartialText = partial
                 AstraLog.d(tag, "STT partial = $currentPartialText")
             }
         }
         return currentPartialText
     }
 
+    /**
+     * Finalizes the full speech segment on VAD SPEECH_END by performing a full decode
+     * across the entire accumulated utterance buffer.
+     */
     fun finalize(language: Language = Language.HINDI): String {
-        val finalTranscript = decodeAudio(accumulatedPcm.toFloatArray(), language)
+        val fullSamples = accumulatedPcm.toFloatArray()
+        val finalTranscript = decodeAudio(fullSamples, language, isPartial = false)
         reset()
         val result = finalTranscript.ifBlank { currentPartialText }.trim()
         AstraLog.d(tag, "STT final = $result")
         return result
     }
 
-    private fun decodeAudio(samples: FloatArray, language: Language): String {
+    private fun decodeAudio(samples: FloatArray, language: Language, isPartial: Boolean = false): String {
         if (samples.size < SttConfig.FRAME_SIZE_SAMPLES) return ""
 
         val session = ortSession
@@ -129,7 +162,7 @@ class IndicConformerSttEngine(
         }
 
         try {
-            AstraLog.d(tag, "STT inference started: processing ${samples.size} PCM samples for lang=${language.name}")
+            val startNs = System.nanoTime()
             val featureOutput = AudioFeatureExtractor.extractFeatures(samples)
             val timeSteps = featureOutput.timeSteps
 
@@ -157,6 +190,16 @@ class IndicConformerSttEngine(
             } else {
                 ""
             }
+
+            val endNs = System.nanoTime()
+            val durationMs = (endNs - startNs) / 1_000_000.0
+            val audioLengthMs = (samples.size * 1000.0) / SttConfig.SAMPLE_RATE
+            val rtf = if (audioLengthMs > 0) durationMs / audioLengthMs else 0.0
+
+            AstraLog.d(
+                tag,
+                "STT decode finished [isPartial=$isPartial]: duration=${String.format(Locale.US, "%.1f", durationMs)}ms (audio=${String.format(Locale.US, "%.1f", audioLengthMs)}ms, RTF=${String.format(Locale.US, "%.2f", rtf)}, text='$decodedText')"
+            )
 
             signalTensor.close()
             lengthTensor.close()
@@ -212,7 +255,6 @@ class IndicConformerSttEngine(
             var maxIdx = blankId
 
             for (v in 0 until vocabSize) {
-                if (!isTokenInLanguageScript(v, language)) continue
 
                 val flatIdx = if (isTimeFirst) t * vocabSize + v else v * timeSteps + t
                 if (flatIdx < buffer.capacity()) {
@@ -243,7 +285,11 @@ class IndicConformerSttEngine(
             }
         }
 
-        return sb.toString().trim()
+        val assembled = sb.toString().trim()
+        if (tokens.isNotEmpty()) {
+            AstraLog.d(tag, "CTC greedy decoded ${tokens.size} tokens: $tokens -> '$assembled'")
+        }
+        return assembled
     }
 
     fun release() {

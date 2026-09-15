@@ -46,7 +46,7 @@ android {
     }
 
     androidResources {
-        // noCompress removed to prevent >2GB zip integer overflow
+        // Assets configured cleanly
     }
 
     packaging {
@@ -96,4 +96,10 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.truth)
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
 }

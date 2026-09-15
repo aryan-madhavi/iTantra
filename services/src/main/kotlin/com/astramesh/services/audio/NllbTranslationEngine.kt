@@ -7,43 +7,43 @@ import android.content.Context
 import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.OfflineTranslationEngine
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.File
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 
 /**
  * On-Device NLLB-200 INT8 Neural Machine Translation Engine.
  * Supports direct translation across all 10 project languages using ONNX Runtime Mobile.
+ * Driven by HuggingFace BPE fast-tokenizer  for accurate multilingual subword tokenization.
  * Includes deterministic fallback to OfflineTranslationEngine phrasebook and same-language fast-path.
  */
 class NllbTranslationEngine(
     private val context: Context,
     private val encoderAssetPath: String = "models/mt/nllb200-int8-onnx/encoder_model_int8.onnx",
     private val decoderAssetPath: String = "models/mt/nllb200-int8-onnx/decoder_model_int8.onnx",
-    private val vocabAssetPath: String = "models/mt/nllb200-int8-onnx/shared_vocabulary.txt"
+    private val tokenizerAssetPath: String = "models/mt/nllb200-int8-onnx/tokenizer.json"
 ) {
     private val tag = "NllbTranslationEngine"
     private var ortEnv: OrtEnvironment? = null
     private var encoderSession: OrtSession? = null
     private var decoderSession: OrtSession? = null
 
-    // NLLB Token mapping: Token ID <-> Token string
-    private val idToToken = mutableMapOf<Long, String>()
-    private val tokenToId = mutableMapOf<String, Long>()
+    // Pure Kotlin NLLB-200 BPE Tokenizer
+    var tokenizer: NllbTokenizer? = null
+        private set
 
-    // NLLB Language Code mapping
+    // Authoritative NLLB Language Code mapping verified against tokenizer.json and lang_codes.json
     private val languageTokenIds = mapOf(
-        Language.HINDI to 256047L,
-        Language.BENGALI to 256015L,
-        Language.TELUGU to 256119L,
-        Language.MARATHI to 256077L,
-        Language.TAMIL to 256118L,
-        Language.GUJARATI to 256043L,
-        Language.KANNADA to 256057L,
-        Language.MALAYALAM to 256073L,
-        Language.ODIA to 256089L,
-        Language.ENGLISH to 256027L
+        Language.HINDI to 256068L,     // hin_Deva
+        Language.GUJARATI to 256064L,  // guj_Gujr
+        Language.MARATHI to 256116L,   // mar_Deva
+        Language.KANNADA to 256083L,   // kan_Knda
+        Language.MALAYALAM to 256115L, // mal_Mlym
+        Language.TAMIL to 256170L,     // tam_Taml
+        Language.TELUGU to 256172L,    // tel_Telu
+        Language.ODIA to 256136L,      // ory_Orya
+        Language.BENGALI to 256026L,   // ben_Beng
+        Language.ENGLISH to 256047L    // eng_Latn
     )
 
     private val eosTokenId = 2L
@@ -51,29 +51,29 @@ class NllbTranslationEngine(
     private val maxNewTokens = 64
 
     val isInitialized: Boolean
-        get() = encoderSession != null && decoderSession != null && idToToken.isNotEmpty()
+        get() = encoderSession != null && decoderSession != null && tokenizer != null
 
     init {
-        loadVocabulary()
+        loadTokenizer()
         initializeSessions()
     }
 
-    private fun loadVocabulary() {
+    private fun loadTokenizer() {
         try {
-            context.assets.open(vocabAssetPath).use { stream ->
-                BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useLines { lines ->
-                    var idx = 0L
-                    for (line in lines) {
-                        val token = line.trimEnd('\r', '\n')
-                        idToToken[idx] = token
-                        tokenToId[token] = idx
-                        idx++
-                    }
+            if (ModelAssetLoader.assetExists(context, tokenizerAssetPath)) {
+                context.assets.open(tokenizerAssetPath).use { stream ->
+                    tokenizer = NllbTokenizer.fromInputStream(stream)
+                }
+                AstraLog.i(tag, "Loaded NLLB-200 BPE tokenizer from asset $tokenizerAssetPath")
+            } else {
+                val file = File(tokenizerAssetPath)
+                if (file.exists()) {
+                    tokenizer = NllbTokenizer.fromFile(file)
+                    AstraLog.i(tag, "Loaded NLLB-200 BPE tokenizer from file ${file.absolutePath}")
                 }
             }
-            AstraLog.i(tag, "Loaded ${idToToken.size} vocabulary tokens for NLLB-200")
         } catch (e: Exception) {
-            AstraLog.w(tag, "Failed to load NLLB vocabulary from $vocabAssetPath: ${e.message}")
+            AstraLog.w(tag, "Failed to load NLLB tokenizer from $tokenizerAssetPath: ${e.message}")
         }
     }
 
@@ -103,7 +103,7 @@ class NllbTranslationEngine(
     }
 
     fun getLanguageTokenId(language: Language): Long {
-        return languageTokenIds[language] ?: 256047L
+        return tokenizer?.getLanguageTokenId(language) ?: languageTokenIds[language] ?: 256047L
     }
 
     /**
@@ -133,10 +133,11 @@ class NllbTranslationEngine(
         val enc = encoderSession
         val dec = decoderSession
         val env = ortEnv
+        val tok = tokenizer
 
-        if (enc != null && dec != null && env != null && idToToken.isNotEmpty()) {
+        if (enc != null && dec != null && env != null && tok != null) {
             try {
-                val neuralResult = generateNeuralTranslation(trimmed, sourceLang, targetLang, enc, dec, env)
+                val neuralResult = generateNeuralTranslation(trimmed, sourceLang, targetLang, enc, dec, env, tok)
                 if (neuralResult.isNotBlank()) {
                     return neuralResult
                 }
@@ -148,37 +149,26 @@ class NllbTranslationEngine(
         return phrasebookResult
     }
 
-    private fun generateNeuralTranslation(
+    /**
+     * Core neural translation generation method using real BPE encoding and symmetrical decoding.
+     */
+    fun generateNeuralTranslation(
         text: String,
         sourceLang: Language,
         targetLang: Language,
         encSession: OrtSession,
         decSession: OrtSession,
-        env: OrtEnvironment
+        env: OrtEnvironment,
+        tok: NllbTokenizer
     ): String {
         val srcTokenId = getLanguageTokenId(sourceLang)
         val tgtTokenId = getLanguageTokenId(targetLang)
 
-        // Tokenize source sequence: [src_lang_id, tokens..., eos_token_id]
-        val tokenIds = mutableListOf<Long>()
+        // Tokenize source sequence using real BPE: [src_lang_id, bpe_tokens..., eos_token_id]
+        val textTokenIds = tok.encode(text)
+        val tokenIds = ArrayList<Long>(textTokenIds.size + 2)
         tokenIds.add(srcTokenId)
-
-        val words = text.split(Regex("\\s+"))
-        for (word in words) {
-            val spaceWord = " $word"
-            val directId = tokenToId[spaceWord] ?: tokenToId[word]
-            if (directId != null) {
-                tokenIds.add(directId)
-            } else {
-                var first = true
-                for (char in word) {
-                    val piece = if (first) " $char" else char.toString()
-                    val pieceId = tokenToId[piece] ?: tokenToId[char.toString()] ?: 3L
-                    tokenIds.add(pieceId)
-                    first = false
-                }
-            }
-        }
+        tokenIds.addAll(textTokenIds)
         tokenIds.add(eosTokenId)
 
         val seqLen = tokenIds.size.toLong()
@@ -269,29 +259,20 @@ class NllbTranslationEngine(
         attentionMaskTensor.close()
 
         // Decode generated IDs back to text (skipping initial [EOS, target_lang_id])
-        val resultSb = StringBuilder()
-        for (i in 2 until generatedIds.size) {
-            val id = generatedIds[i]
-            val piece = idToToken[id] ?: ""
-            if (piece.startsWith(" ")) {
-                if (resultSb.isNotEmpty()) resultSb.append(" ")
-                resultSb.append(piece.removePrefix(" "))
-            } else {
-                resultSb.append(piece)
-            }
-        }
+        if (generatedIds.size <= 2) return ""
+        val generatedTokens = generatedIds.subList(2, generatedIds.size)
+        val decodedText = tok.decode(generatedTokens)
 
-        return resultSb.toString().trim()
+        return decodedText
     }
 
     fun release() {
         try {
             encoderSession?.close()
             decoderSession?.close()
-            ortEnv?.close()
         } catch (_: Exception) {}
         encoderSession = null
         decoderSession = null
-        ortEnv = null
+        tokenizer = null
     }
 }

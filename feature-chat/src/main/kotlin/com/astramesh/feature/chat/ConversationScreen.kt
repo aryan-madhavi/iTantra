@@ -30,9 +30,9 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Emergency
-import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Sync
@@ -67,7 +67,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
@@ -75,14 +74,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
 import com.astramesh.core.VoiceMode
 import com.astramesh.domain.model.Message
 import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.model.MessageStatus
-import com.astramesh.ui.components.PulsingStatusDot
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -109,6 +106,7 @@ fun ConversationScreen(
     val isRecordingPtt by viewModel.isRecordingPtt.collectAsState()
     val currentVoiceMode by viewModel.currentVoiceMode.collectAsState()
     val isContinuousModeActive by viewModel.isContinuousModeActive.collectAsState()
+    val continuousState by viewModel.continuousState.collectAsState()
     val liveRms by viewModel.liveRms.collectAsState()
     val recordingDurationSec by viewModel.recordingDurationSec.collectAsState()
     val liveTranscript by viewModel.liveTranscript.collectAsState()
@@ -138,7 +136,7 @@ fun ConversationScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson)
                 ) {
-                    Text("Broadcast SOS", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("TRANSMIT SOS", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -146,12 +144,17 @@ fun ConversationScreen(
                     Text("Cancel", color = AstraTextSecondary)
                 }
             },
-            containerColor = AstraSurfaceVariant
+            containerColor = AstraSurface,
+            shape = RoundedCornerShape(12.dp)
         )
     }
 
-    val recipientDisplayName by viewModel.recipientDisplayName.collectAsState()
-    val displayName = recipientDisplayName ?: "Node ${viewModel.recipientId.toHex().take(8)}"
+    val customPeerName by viewModel.recipientDisplayName.collectAsState()
+    val displayName = when {
+        viewModel.recipientId.isBroadcast -> "ALL MESH (BROADCAST)"
+        customPeerName != null -> customPeerName!!
+        else -> "Node-${viewModel.recipientId.toHex().take(8)}"
+    }
 
     Scaffold(
         topBar = {
@@ -161,51 +164,54 @@ fun ConversationScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = displayName,
-                                color = AstraTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black
+                                color = if (viewModel.recipientId.isBroadcast) AstraAmber else AstraTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            PulsingStatusDot(isActive = true)
+                            if (viewModel.recipientId.isBroadcast) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(AstraAmber.copy(alpha = 0.2f))
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("BROADCAST", color = AstraAmber, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
                         }
                         Text(
-                            text = "DIRECT P2P TRANSCEIVER • ID: ${viewModel.recipientId.toHex().take(8)}",
+                            text = "Direct Neural Transceiver (${speechLanguage.englishName})",
                             color = AstraCyan,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = AstraTextPrimary
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AstraTextPrimary)
                     }
                 },
                 actions = {
-                    // Language selector dropdown in top bar
                     Box {
-                        AssistChip(
-                            onClick = { languageDropdownExpanded = true },
-                            label = { Text(speechLanguage.nativeName, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            leadingIcon = { Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = AstraSurfaceVariant,
-                                labelColor = AstraCyan,
-                                leadingIconContentColor = AstraCyan
-                            )
-                        )
+                        IconButton(onClick = { languageDropdownExpanded = true }) {
+                            Icon(Icons.Default.Language, contentDescription = "Speech Language", tint = AstraCyan)
+                        }
                         DropdownMenu(
                             expanded = languageDropdownExpanded,
-                            onDismissRequest = { languageDropdownExpanded = false }
+                            onDismissRequest = { languageDropdownExpanded = false },
+                            modifier = Modifier.background(AstraSurface)
                         ) {
                             Language.entries.forEach { lang ->
                                 DropdownMenuItem(
-                                    text = { Text("${lang.nativeName} (${lang.englishName})") },
+                                    text = {
+                                        Text(
+                                            "${lang.englishName} (${lang.nativeName})",
+                                            color = if (lang == speechLanguage) AstraCyan else AstraTextPrimary,
+                                            fontWeight = if (lang == speechLanguage) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
                                     onClick = {
                                         viewModel.setSpeechLanguage(lang)
                                         languageDropdownExpanded = false
@@ -214,7 +220,6 @@ fun ConversationScreen(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AstraSurface)
             )
@@ -228,7 +233,7 @@ fun ConversationScreen(
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             // -------------------------------------------------------------
-            // DIRECT VOICE MODE CHIP BAR
+            // DIRECT VOICE MODE CHIP BAR (PTT / Walkie / Continuous / SOS)
             // -------------------------------------------------------------
             Row(
                 modifier = Modifier
@@ -260,6 +265,16 @@ fun ConversationScreen(
                     )
                 )
                 AssistChip(
+                    onClick = { viewModel.setVoiceMode(if (currentVoiceMode == VoiceMode.CONTINUOUS) VoiceMode.PUSH_TO_TALK else VoiceMode.CONTINUOUS) },
+                    label = { Text(if (isContinuousModeActive) "Phone (Live)" else "Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(13.dp)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
+                        labelColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald else AstraTextSecondary,
+                        leadingIconContentColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald else AstraTextSecondary
+                    )
+                )
+                AssistChip(
                     onClick = { viewModel.setVoiceMode(VoiceMode.EMERGENCY) },
                     label = { Text("SOS", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(13.dp)) },
@@ -271,7 +286,7 @@ fun ConversationScreen(
                 )
                 AssistChip(
                     onClick = { showTextInputDrawer = !showTextInputDrawer },
-                    label = { Text(if (showTextInputDrawer) "Hide Text" else "Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(if (showTextInputDrawer) "Hide" else "Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(13.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (showTextInputDrawer) AstraSurface else Color.Transparent,
@@ -283,7 +298,7 @@ fun ConversationScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Optional Quick Text Drawer (if operator explicitly needs text payload)
+            // Optional Quick Text Drawer
             AnimatedVisibility(visible = showTextInputDrawer) {
                 Row(
                     modifier = Modifier
@@ -358,7 +373,7 @@ fun ConversationScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Hold PTT below to initiate direct transmission.",
+                                text = if (isContinuousModeActive) "Continuous mode active — listening for speech..." else "Hold PTT below to initiate direct transmission.",
                                 color = AstraTextSecondary,
                                 fontSize = 12.sp
                             )
@@ -386,17 +401,20 @@ fun ConversationScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             // -------------------------------------------------------------
-            // DIRECT PTT WALKIE-TALKIE TRANSCEIVER CONTROLLER
+            // DIRECT TRANSCEIVER CONTROLLER (PTT & CONTINUOUS)
             // -------------------------------------------------------------
             DirectPttTransceiverControl(
                 voiceMode = currentVoiceMode,
                 isRecording = isRecordingPtt,
+                isContinuousMode = isContinuousModeActive,
+                continuousState = continuousState,
                 liveRms = liveRms,
                 recordingDurationSec = recordingDurationSec,
                 liveTranscript = liveTranscript,
                 isReceiverSpeaking = isReceiverSpeaking,
                 onPttStart = viewModel::startPtt,
                 onPttStop = viewModel::stopPtt,
+                onToggleContinuous = viewModel::toggleContinuousMode,
                 onSosClicked = { showSosConfirmDialog = true }
             )
         }
@@ -407,20 +425,24 @@ fun ConversationScreen(
 fun DirectPttTransceiverControl(
     voiceMode: VoiceMode,
     isRecording: Boolean,
+    isContinuousMode: Boolean,
+    continuousState: ContinuousState,
     liveRms: Int,
     recordingDurationSec: Int,
     liveTranscript: String,
     isReceiverSpeaking: Boolean,
     onPttStart: () -> Unit,
     onPttStop: () -> Unit,
+    onToggleContinuous: () -> Unit,
     onSosClicked: () -> Unit
 ) {
     val transition = rememberInfiniteTransition(label = "direct_pulse")
+    val isActivelyTranscribing = isRecording || (isContinuousMode && liveTranscript.isNotBlank())
     val scale by transition.animateFloat(
         initialValue = 0.97f,
         targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
-            animation = tween(if (isRecording) 500 else 1000, easing = FastOutSlowInEasing),
+            animation = tween(if (isActivelyTranscribing) 500 else 1000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "btnScale"
@@ -429,8 +451,9 @@ fun DirectPttTransceiverControl(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = when (voiceMode) {
-                VoiceMode.EMERGENCY -> AstraCrimson.copy(alpha = 0.15f)
+            containerColor = when {
+                voiceMode == VoiceMode.EMERGENCY -> AstraCrimson.copy(alpha = 0.15f)
+                isContinuousMode -> AstraEmerald.copy(alpha = 0.12f)
                 else -> AstraSurfaceVariant
             }
         ),
@@ -443,12 +466,17 @@ fun DirectPttTransceiverControl(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Live Waveform & Live Transcript preview
-            if (isRecording) {
+            if (isRecording || isContinuousMode) {
                 DirectWaveform(rms = liveRms)
                 Spacer(modifier = Modifier.height(4.dp))
+                val statusTitle = when {
+                    isRecording -> "TRANSMITTING DIRECT: 00:%02d".format(recordingDurationSec)
+                    isContinuousMode -> "CONTINUOUS PHONE MODE (ALWAYS LISTENING)"
+                    else -> ""
+                }
                 Text(
-                    text = "TRANSMITTING DIRECT: 00:%02d".format(recordingDurationSec),
-                    color = if (voiceMode == VoiceMode.EMERGENCY) AstraCrimson else AstraCyan,
+                    text = statusTitle,
+                    color = if (voiceMode == VoiceMode.EMERGENCY) AstraCrimson else if (isContinuousMode) AstraEmerald else AstraCyan,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -471,11 +499,12 @@ fun DirectPttTransceiverControl(
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // Main PTT Hold Button
+            // Transceiver Action Button
             val buttonColor = when {
                 isRecording && voiceMode == VoiceMode.EMERGENCY -> AstraCrimson
                 isRecording -> AstraEmerald
                 voiceMode == VoiceMode.EMERGENCY -> AstraCrimson
+                isContinuousMode -> AstraEmerald
                 else -> AstraCyan
             }
 
@@ -483,17 +512,23 @@ fun DirectPttTransceiverControl(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
-                    .scale(if (isRecording) scale else 1f)
+                    .scale(if (isActivelyTranscribing) scale else 1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(buttonColor)
-                    .pointerInput(voiceMode) {
-                        detectTapGestures(
-                            onPress = {
-                                onPttStart()
-                                tryAwaitRelease()
-                                onPttStop()
-                            }
-                        )
+                    .pointerInput(voiceMode, isContinuousMode) {
+                        if (isContinuousMode) {
+                            detectTapGestures(
+                                onTap = { onToggleContinuous() }
+                            )
+                        } else {
+                            detectTapGestures(
+                                onPress = {
+                                    onPttStart()
+                                    tryAwaitRelease()
+                                    onPttStop()
+                                }
+                            )
+                        }
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -502,13 +537,18 @@ fun DirectPttTransceiverControl(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        if (voiceMode == VoiceMode.EMERGENCY) Icons.Default.Emergency else Icons.Default.Mic,
+                        when {
+                            voiceMode == VoiceMode.EMERGENCY -> Icons.Default.Emergency
+                            isContinuousMode -> Icons.Default.Phone
+                            else -> Icons.Default.Mic
+                        },
                         contentDescription = null,
-                        tint = if (isRecording || voiceMode == VoiceMode.EMERGENCY) Color.White else Color.Black,
+                        tint = if (isRecording || isContinuousMode || voiceMode == VoiceMode.EMERGENCY) Color.White else Color.Black,
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     val label = when {
+                        isContinuousMode -> "CONTINUOUS MODE ACTIVE (TAP TO STOP)"
                         isRecording -> "RELEASE TO TRANSMIT DIRECT (${recordingDurationSec}s)"
                         voiceMode == VoiceMode.EMERGENCY -> "HOLD FOR DIRECT SOS VOICE"
                         voiceMode == VoiceMode.WALKIE_TALKIE -> "HOLD TO TALK (WALKIE)"
@@ -516,7 +556,7 @@ fun DirectPttTransceiverControl(
                     }
                     Text(
                         text = label,
-                        color = if (isRecording || voiceMode == VoiceMode.EMERGENCY) Color.White else Color.Black,
+                        color = if (isRecording || isContinuousMode || voiceMode == VoiceMode.EMERGENCY) Color.White else Color.Black,
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp
                     )

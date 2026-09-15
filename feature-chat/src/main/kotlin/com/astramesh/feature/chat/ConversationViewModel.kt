@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ContinuousState {
     IDLE,
@@ -96,6 +97,7 @@ class ConversationViewModel(
     private val recordedAudioBuffer = ByteArrayOutputStream()
     private var pttSequence = 0
     private var timerJob: Job? = null
+    private val hasSentCurrentPttUtterance = AtomicBoolean(false)
 
     private val _speechLanguage = MutableStateFlow(voiceEngineManager?.preferredLanguage ?: com.astramesh.core.Language.HINDI)
     val speechLanguage: StateFlow<com.astramesh.core.Language> = _speechLanguage.asStateFlow()
@@ -113,6 +115,15 @@ class ConversationViewModel(
 
     fun setVoiceMode(mode: VoiceMode) {
         _currentVoiceMode.value = mode
+        if (mode == VoiceMode.CONTINUOUS) {
+            if (!_isContinuousModeActive.value) {
+                toggleContinuousMode()
+            }
+        } else {
+            if (_isContinuousModeActive.value) {
+                toggleContinuousMode()
+            }
+        }
         AstraLog.d("ConversationViewModel", "VOICE_MODE Selected mode=${mode.name}")
     }
 
@@ -132,7 +143,8 @@ class ConversationViewModel(
     }
 
     /**
-     * Push-To-Talk / Walkie-Talkie: Hold to Record
+     * Push-To-Talk / Walkie-Talkie: Hold to Record.
+     * Decouples partial UI caption updates from final sentence transmission.
      */
     fun startPtt(mode: VoiceMode = VoiceMode.PUSH_TO_TALK) {
         if (_isRecordingPtt.value) return
@@ -141,6 +153,7 @@ class ConversationViewModel(
         _recordingDurationSec.value = 0
         _liveRms.value = 0
         _liveTranscript.value = ""
+        hasSentCurrentPttUtterance.set(false)
         synchronized(recordedAudioBuffer) {
             recordedAudioBuffer.reset()
         }
@@ -164,16 +177,28 @@ class ConversationViewModel(
         // Start Live STT with exclusive microphone access
         voiceEngineManager?.startStt(
             language = _speechLanguage.value,
-            onRmsChanged = { rms -> _liveRms.value = rms }
-        ) { transcript ->
-            if (transcript.isNotBlank()) {
-                _liveTranscript.value = transcript
+            onRmsChanged = { rms -> _liveRms.value = rms },
+            onPartialResult = { partialTranscript ->
+                // Strictly UI captioning preview — never transmitted across mesh
+                if (partialTranscript.isNotBlank()) {
+                    _liveTranscript.value = partialTranscript
+                }
+            },
+            onFinalResult = { finalSentence ->
+                // Event-driven immediate sentence transmission on VAD SPEECH_END
+                if (finalSentence.isNotBlank() && _isRecordingPtt.value) {
+                    if (hasSentCurrentPttUtterance.compareAndSet(false, true)) {
+                        _liveTranscript.value = finalSentence
+                        AstraLog.d("ConversationViewModel", "$modeTag sentence finalized on VAD SPEECH_END: '$finalSentence'")
+                        transmitVoiceSentence(finalSentence, mode)
+                    }
+                }
             }
-        }
+        )
     }
 
     /**
-     * Push-To-Talk / Walkie-Talkie: Release to Send
+     * Push-To-Talk / Walkie-Talkie: Release to Send.
      */
     fun stopPtt() {
         if (!_isRecordingPtt.value) return
@@ -194,38 +219,61 @@ class ConversationViewModel(
         viewModelScope.launch {
             val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
 
-            val transcript = _liveTranscript.value.trim()
-            var rawText = if (recognizedText.isNotBlank()) {
-                recognizedText
-            } else if (transcript.isNotBlank()) {
-                transcript
-            } else if (duration > 0) {
-                // Localized fallback if user spoke but STT engine did not output text
-                if (mode == VoiceMode.EMERGENCY) _speechLanguage.value.getDefaultEmergencyText() else _speechLanguage.value.getDefaultVoiceNoteText()
-            } else {
-                ""
-            }
-
-            // If user selected English speech, translate Devanagari phonetics to English text
-            if (rawText.isNotBlank() && _speechLanguage.value == com.astramesh.core.Language.ENGLISH && rawText.any { it in 'ऀ'..'ॿ' }) {
-                val translatedEng = voiceEngineManager?.translateText(rawText, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
-                if (translatedEng.isNotBlank()) {
-                    rawText = translatedEng
+            // If not already transmitted on VAD SPEECH_END, transmit now on button release
+            if (hasSentCurrentPttUtterance.compareAndSet(false, true)) {
+                val transcript = _liveTranscript.value.trim()
+                val rawText = if (recognizedText.isNotBlank()) {
+                    recognizedText
+                } else if (transcript.isNotBlank()) {
+                    transcript
+                } else if (duration > 0) {
+                    // Localized fallback if user spoke but STT engine did not output text
+                    if (mode == VoiceMode.EMERGENCY) _speechLanguage.value.getDefaultEmergencyText() else _speechLanguage.value.getDefaultVoiceNoteText()
+                } else {
+                    ""
                 }
-            }
-            val textToSend = rawText
 
-            if (textToSend.isNotBlank()) {
-                val isEmergency = (mode == VoiceMode.EMERGENCY)
-                AstraLog.d("ConversationViewModel", "SEND $modeTag IthantraMessage text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
-                sendMessageUseCase.sendIthantraVoiceMessage(
-                    chatId = chatId,
-                    recipientId = recipientId,
-                    text = textToSend,
-                    language = _speechLanguage.value,
-                    isEmergency = isEmergency
-                )
+                if (rawText.isNotBlank()) {
+                    transmitVoiceSentence(rawText, mode)
+                }
+            } else {
+                AstraLog.d("ConversationViewModel", "$modeTag Utterance already transmitted immediately on VAD SPEECH_END; skipping duplicate release transmission")
             }
+        }
+    }
+
+    /**
+     * Helper to perform language adjustments and transmit a completed voice sentence.
+     */
+    private fun transmitVoiceSentence(rawText: String, mode: VoiceMode) {
+        var textToSend = rawText.trim()
+        if (textToSend.isBlank()) return
+
+        // If user selected English speech, translate Devanagari phonetics to English text
+        if (_speechLanguage.value == com.astramesh.core.Language.ENGLISH && textToSend.any { it in 'ऀ'..'ॿ' }) {
+            val translatedEng = voiceEngineManager?.translateText(textToSend, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
+            if (translatedEng.isNotBlank()) {
+                textToSend = translatedEng
+            }
+        }
+
+        val isEmergency = (mode == VoiceMode.EMERGENCY)
+        val modeTag = when (mode) {
+            VoiceMode.WALKIE_TALKIE -> "WALKIE"
+            VoiceMode.EMERGENCY -> "SOS"
+            VoiceMode.CONTINUOUS -> "CONTINUOUS"
+            VoiceMode.PUSH_TO_TALK -> "PTT"
+        }
+
+        AstraLog.d("ConversationViewModel", "SEND $modeTag sentence text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
+        viewModelScope.launch {
+            sendMessageUseCase.sendIthantraVoiceMessage(
+                chatId = chatId,
+                recipientId = recipientId,
+                text = textToSend,
+                language = _speechLanguage.value,
+                isEmergency = isEmergency
+            )
         }
     }
 
@@ -247,7 +295,7 @@ class ConversationViewModel(
     }
 
     /**
-     * Toggle Continuous Hands-Free Voice Mode (Mic -> VAD -> STT -> Transmission)
+     * Toggle Continuous Hands-Free Phone Mode (Mic -> VAD -> STT -> Immediate Transmission per Sentence)
      */
     fun toggleContinuousMode() {
         val nextState = !_isContinuousModeActive.value
@@ -255,30 +303,40 @@ class ConversationViewModel(
         AstraLog.d("ConversationViewModel", "CONTINUOUS mode active=$nextState")
 
         if (nextState) {
+            _currentVoiceMode.value = VoiceMode.CONTINUOUS
             _continuousState.value = ContinuousState.LISTENING
-            voiceEngineManager?.startStt(_speechLanguage.value) { transcript ->
-                if (transcript.isNotBlank()) {
-                    _liveTranscript.value = transcript
-                    _continuousState.value = ContinuousState.TRANSCRIBING
-                    AstraLog.d("ConversationViewModel", "CONTINUOUS Recognized transcript='$transcript'")
+            _liveTranscript.value = ""
 
-                    viewModelScope.launch {
+            voiceEngineManager?.startStt(
+                language = _speechLanguage.value,
+                onRmsChanged = { rms -> _liveRms.value = rms },
+                onPartialResult = { partial ->
+                    // Live UI preview only
+                    if (partial.isNotBlank()) {
+                        _liveTranscript.value = partial
+                        _continuousState.value = ContinuousState.TRANSCRIBING
+                    }
+                },
+                onFinalResult = { finalSentence ->
+                    // Single clean sentence sent immediately upon pause detection (VAD SPEECH_END)
+                    if (finalSentence.isNotBlank() && _isContinuousModeActive.value) {
+                        _liveTranscript.value = finalSentence
                         _continuousState.value = ContinuousState.SPEAKING
-                        sendMessageUseCase.sendIthantraVoiceMessage(
-                            chatId = chatId,
-                            recipientId = recipientId,
-                            text = transcript,
-                            language = _speechLanguage.value,
-                            isEmergency = false
-                        )
-                        delay(1500)
-                        if (_isContinuousModeActive.value) {
-                            _continuousState.value = ContinuousState.LISTENING
+                        AstraLog.d("ConversationViewModel", "CONTINUOUS sentence recognized on SPEECH_END: '$finalSentence'")
+
+                        viewModelScope.launch {
+                            transmitVoiceSentence(finalSentence, VoiceMode.CONTINUOUS)
+                            delay(1200)
+                            if (_isContinuousModeActive.value) {
+                                _continuousState.value = ContinuousState.LISTENING
+                                _liveTranscript.value = ""
+                            }
                         }
                     }
                 }
-            }
+            )
         } else {
+            _currentVoiceMode.value = VoiceMode.PUSH_TO_TALK
             _continuousState.value = ContinuousState.IDLE
             _liveTranscript.value = ""
             voiceEngineManager?.stopStt()
@@ -301,4 +359,3 @@ class ConversationViewModel(
         voiceEngineManager?.stopStt()
     }
 }
-

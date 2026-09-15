@@ -31,7 +31,7 @@ data class VADEvent(
 /**
  * On-Device Silero VAD v5 Engine using ONNX Runtime Mobile.
  * Operates on 16kHz mono PCM frames (512 samples) with 64-sample rolling context (576 samples total).
- * Strictly zero network calls, sub-millisecond per-frame inference.
+ * Strictly zero network calls, sub-millisecond per-frame inference with zero allocation in the hot streaming loop.
  */
 class SileroVadEngine(
     private val context: Context,
@@ -45,13 +45,22 @@ class SileroVadEngine(
     private var hiddenState: Array<Array<FloatArray>> = Array(2) { Array(1) { FloatArray(128) } }
     private var contextBuffer = FloatArray(SttConfig.CONTEXT_SIZE_SAMPLES)
 
+    // Preallocated buffers to eliminate GC allocations in hot loop
+    private val windowBuffer = FloatArray(SttConfig.FRAME_SIZE_SAMPLES)
+    private val inputCombinedBuffer = FloatArray(SttConfig.TOTAL_INPUT_SAMPLES)
+    private val flatStateBuffer = FloatArray(2 * 1 * 128)
+    private val sampleRateArray = longArrayOf(SttConfig.SAMPLE_RATE.toLong())
+    private val inputShape = longArrayOf(1, SttConfig.TOTAL_INPUT_SAMPLES.toLong())
+    private val stateShape = longArrayOf(2, 1, 128)
+    private val srShape = longArrayOf(1)
+
     // Streaming state machine
     private var isTriggered = false
     private var consecutiveSpeechFrames = 0
     private var silenceSamples = 0
+    private var processedSampleCount = 0L
     private val preBuffer = ArrayDeque<FloatArray>()
     private val currentSpeechFrames = mutableListOf<FloatArray>()
-    private var processedSampleCount = 0L
 
     val isInitialized: Boolean
         get() = ortSession != null
@@ -64,19 +73,22 @@ class SileroVadEngine(
         try {
             ortEnv = OrtEnvironment.getEnvironment()
             val modelFile = ModelAssetLoader.getOrExtractAssetFile(context, modelAssetPath)
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(2)
+            val options = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(1)
             }
-            ortSession = ortEnv?.createSession(modelFile.absolutePath, sessionOptions)
+            ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
             AstraLog.i(tag, "VAD initialized: Silero VAD v5 ONNX session loaded from '${modelFile.absolutePath}'")
         } catch (e: Exception) {
-            AstraLog.w(tag, "VAD initialization failed (${e.message}). Will use energy heuristic.")
+            AstraLog.w(tag, "Silero VAD initialization failed: ${e.message}")
         }
     }
 
     fun resetState() {
         hiddenState = Array(2) { Array(1) { FloatArray(128) } }
-        contextBuffer.fill(0f)
+        contextBuffer.fill(0.0f)
+        windowBuffer.fill(0.0f)
+        inputCombinedBuffer.fill(0.0f)
+        flatStateBuffer.fill(0.0f)
         isTriggered = false
         consecutiveSpeechFrames = 0
         silenceSamples = 0
@@ -87,50 +99,51 @@ class SileroVadEngine(
 
     /**
      * Infer speech probability for a single 512-sample float32 frame.
+     * Uses preallocated buffers to avoid per-frame GC churn.
      */
     fun processFrame(frame: FloatArray): Float {
-        val window = FloatArray(SttConfig.FRAME_SIZE_SAMPLES)
         val copyLen = min(frame.size, SttConfig.FRAME_SIZE_SAMPLES)
-        System.arraycopy(frame, 0, window, 0, copyLen)
+        System.arraycopy(frame, 0, windowBuffer, 0, copyLen)
+        if (copyLen < SttConfig.FRAME_SIZE_SAMPLES) {
+            java.util.Arrays.fill(windowBuffer, copyLen, SttConfig.FRAME_SIZE_SAMPLES, 0.0f)
+        }
 
         val session = ortSession
         val env = ortEnv
         if (session != null && env != null) {
             try {
                 // Construct input tensor [1, 576] = 64 context + 512 frame
-                val inputCombined = FloatArray(SttConfig.TOTAL_INPUT_SAMPLES)
-                System.arraycopy(contextBuffer, 0, inputCombined, 0, SttConfig.CONTEXT_SIZE_SAMPLES)
-                System.arraycopy(window, 0, inputCombined, SttConfig.CONTEXT_SIZE_SAMPLES, SttConfig.FRAME_SIZE_SAMPLES)
+                System.arraycopy(contextBuffer, 0, inputCombinedBuffer, 0, SttConfig.CONTEXT_SIZE_SAMPLES)
+                System.arraycopy(windowBuffer, 0, inputCombinedBuffer, SttConfig.CONTEXT_SIZE_SAMPLES, SttConfig.FRAME_SIZE_SAMPLES)
 
                 // Update rolling context to the last 64 samples of current frame
-                System.arraycopy(window, SttConfig.FRAME_SIZE_SAMPLES - SttConfig.CONTEXT_SIZE_SAMPLES, contextBuffer, 0, SttConfig.CONTEXT_SIZE_SAMPLES)
+                System.arraycopy(windowBuffer, SttConfig.FRAME_SIZE_SAMPLES - SttConfig.CONTEXT_SIZE_SAMPLES, contextBuffer, 0, SttConfig.CONTEXT_SIZE_SAMPLES)
 
                 val inputTensor = OnnxTensor.createTensor(
                     env,
-                    FloatBuffer.wrap(inputCombined),
-                    longArrayOf(1, SttConfig.TOTAL_INPUT_SAMPLES.toLong())
+                    FloatBuffer.wrap(inputCombinedBuffer),
+                    inputShape
                 )
 
-                // Hidden state tensor: [2, 1, 128]
-                val flatState = FloatArray(2 * 1 * 128)
+                // Flatten hidden state: [2, 1, 128]
                 var idx = 0
                 for (i in 0 until 2) {
                     for (j in 0 until 1) {
                         for (k in 0 until 128) {
-                            flatState[idx++] = hiddenState[i][j][k]
+                            flatStateBuffer[idx++] = hiddenState[i][j][k]
                         }
                     }
                 }
                 val stateTensor = OnnxTensor.createTensor(
                     env,
-                    FloatBuffer.wrap(flatState),
-                    longArrayOf(2, 1, 128)
+                    FloatBuffer.wrap(flatStateBuffer),
+                    stateShape
                 )
 
                 val srTensor = OnnxTensor.createTensor(
                     env,
-                    LongBuffer.wrap(longArrayOf(SttConfig.SAMPLE_RATE.toLong())),
-                    longArrayOf(1)
+                    LongBuffer.wrap(sampleRateArray),
+                    srShape
                 )
 
                 val inputs = mapOf(
@@ -180,10 +193,10 @@ class SileroVadEngine(
 
         // Energy heuristic fallback
         var sumSquares = 0.0
-        for (s in window) {
+        for (s in windowBuffer) {
             sumSquares += (s * s)
         }
-        val rms = sqrt(sumSquares / window.size + 1e-10)
+        val rms = sqrt(sumSquares / windowBuffer.size + 1e-10)
         return min(1.0f, (rms / 0.04f).toFloat())
     }
 

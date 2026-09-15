@@ -389,16 +389,25 @@ class MeshEngine(
                 val speechLanguage: com.astramesh.core.Language
                 val snippet: String
 
+                AstraLog.d("MeshEngine", "[VOICE_RX] Received from ${packet.source.toHex()} source=${ithantra.language.name} target=${listenerLang.name} text=\"${ithantra.text}\"")
+
                 if (ithantra.language == listenerLang) {
                     textToSpeak = ithantra.text
                     speechLanguage = listenerLang
                     snippet = if (isEmergency) "[EMERGENCY ALERT]: ${ithantra.text}" else "[Voice Note]: ${ithantra.text}"
+                    AstraLog.d("MeshEngine", "[TRANSLATION path=\"same_lang\"] ${ithantra.language.name} -> ${listenerLang.name}")
                 } else {
-                    val translated = com.astramesh.core.OfflineTranslationEngine.translate(
+                    AstraLog.d("MeshEngine", "[TRANSLATION_INPUT] source=${ithantra.language.name} target=${listenerLang.name} text=\"${ithantra.text}\"")
+                    val translated = speechSynthesizer?.translateText(
+                        ithantra.text,
+                        ithantra.language,
+                        listenerLang
+                    ) ?: com.astramesh.core.OfflineTranslationEngine.translate(
                         ithantra.text,
                         ithantra.language,
                         listenerLang
                     )
+                    AstraLog.d("MeshEngine", "[TRANSLATION_OUTPUT] target=${listenerLang.name} text=\"$translated\"")
                     textToSpeak = translated
                     speechLanguage = listenerLang
                     snippet = if (isEmergency) "[EMERGENCY ALERT ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated" else "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
@@ -454,9 +463,12 @@ class MeshEngine(
                     )
                 )
 
+                AstraLog.d("MeshEngine", "[UI_UPDATE] translatedText=\"$textToSpeak\" snippet=\"$snippet\"")
+
                 // 5. Synthesize speech on COMPLETE reassembled text
                 try {
-                    AstraLog.d("MeshEngine", "VOICE_PLAYBACK synthesizing speech text='$textToSpeak' lang=${speechLanguage.name} emergency=$isEmergency")
+                    AstraLog.d("MeshEngine", "[TTS_INPUT] language=${speechLanguage.name} text=\"$textToSpeak\"")
+                    AstraLog.d("MeshEngine", "[TTS_LANGUAGE] language=${speechLanguage.name} code=${speechLanguage.code}")
                     speechSynthesizer?.synthesizeAndPlay(
                         text = textToSpeak,
                         language = speechLanguage,

@@ -36,6 +36,21 @@ object AstraLog {
     var minLevel: AstraLogLevel = AstraLogLevel.DEBUG
     var enableConsoleOutput: Boolean = true
 
+    private val androidLogMethods by lazy {
+        try {
+            val logClass = Class.forName("android.util.Log")
+            mapOf(
+                AstraLogLevel.VERBOSE to logClass.getMethod("v", String::class.java, String::class.java),
+                AstraLogLevel.DEBUG to logClass.getMethod("d", String::class.java, String::class.java),
+                AstraLogLevel.INFO to logClass.getMethod("i", String::class.java, String::class.java),
+                AstraLogLevel.WARN to logClass.getMethod("w", String::class.java, String::class.java),
+                AstraLogLevel.ERROR to logClass.getMethod("e", String::class.java, String::class.java, Throwable::class.java)
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun v(tag: String, message: String, throwable: Throwable? = null) = log(AstraLogLevel.VERBOSE, tag, message, throwable)
     fun d(tag: String, message: String, throwable: Throwable? = null) = log(AstraLogLevel.DEBUG, tag, message, throwable)
     fun i(tag: String, message: String, throwable: Throwable? = null) = log(AstraLogLevel.INFO, tag, message, throwable)
@@ -56,6 +71,17 @@ object AstraLog {
         ringBuffer.addLast(entry)
         while (ringBuffer.size > MAX_RING_BUFFER_SIZE) {
             ringBuffer.pollFirst()
+        }
+
+        val method = androidLogMethods?.get(level)
+        if (method != null) {
+            try {
+                if (level == AstraLogLevel.ERROR && throwable != null) {
+                    method.invoke(null, tag, message, throwable)
+                } else {
+                    method.invoke(null, tag, message)
+                }
+            } catch (_: Throwable) {}
         }
 
         if (enableConsoleOutput) {
