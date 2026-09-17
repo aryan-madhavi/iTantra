@@ -151,4 +151,57 @@ class MultiNodeSimulationTest {
         assertThat(received!!.payload).isEqualTo(dtnPayload)
         assertThat(nodeA.storeAndForwardQueue.size()).isEqualTo(0)
     }
+
+    @Test
+    fun testTtlExpirationDropsPacket() {
+        val nodeA = createNode(700L)
+        val nodeB = createNode(800L)
+        val nodeC = createNode(900L)
+
+        medium.addBidirectionalLink(nodeA.nodeId, nodeB.nodeId, latencyMs = 0L)
+        medium.addBidirectionalLink(nodeB.nodeId, nodeC.nodeId, latencyMs = 0L)
+
+        nodeA.routingTable.updateRoute(nodeC.nodeId, nodeB.nodeId, cost = 2.0f, hopCount = 2, sequenceNumber = 1L)
+        nodeB.routingTable.updateRoute(nodeC.nodeId, nodeC.nodeId, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
+
+        val payload = "TTL constrained packet".toByteArray()
+        val packet = com.astramesh.mesh.AstraPacket(
+            type = com.astramesh.mesh.AstraPacketType.DATA_UNICAST,
+            flags = com.astramesh.mesh.AstraPacketFlags(relayAllowed = true),
+            ttl = 1, // Only 1 hop allowed (A -> B). B will drop it when trying to forward to C.
+            hopCount = 0,
+            sequenceNumber = 1L,
+            packetId = com.astramesh.core.PacketId.generate(nodeA.nodeId, 1L, System.currentTimeMillis()),
+            source = nodeA.nodeId,
+            destination = nodeC.nodeId,
+            visitedBloomFilter = com.astramesh.routing.LoopDetector.addNode(0, nodeA.nodeId),
+            payload = payload
+        )
+
+        medium.transmit(nodeA.nodeId, nodeB.nodeId, com.astramesh.mesh.AstraPacket.serialize(packet))
+
+        Thread.sleep(100)
+
+        assertThat(nodeB.packetsDropped.get()).isEqualTo(1L)
+        assertThat(nodeC.packetsReceived.get()).isEqualTo(0L)
+    }
+
+    @Test
+    fun testRoutingLoopIsDropped() {
+        val nodeA = createNode(1000L)
+        val nodeB = createNode(1100L)
+
+        medium.addBidirectionalLink(nodeA.nodeId, nodeB.nodeId, latencyMs = 0L)
+        
+        // Node A routes to B, but Node B routes to B! (Misconfiguration)
+        nodeA.routingTable.updateRoute(NodeId(9999L), nodeB.nodeId, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
+        nodeB.routingTable.updateRoute(NodeId(9999L), nodeB.nodeId, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
+
+        nodeA.sendPacket(NodeId(9999L), "Looping packet".toByteArray())
+
+        Thread.sleep(100)
+
+        // Node B should drop it because nextHop == itself
+        assertThat(nodeB.packetsDropped.get()).isEqualTo(1L)
+    }
 }

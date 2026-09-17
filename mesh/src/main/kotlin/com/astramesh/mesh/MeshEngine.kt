@@ -191,7 +191,7 @@ class MeshEngine(
             packetId = pid,
             source = localNodeId,
             destination = destination,
-            visitedBloomFilter = 0,
+            visitedBloomFilter = com.astramesh.routing.LoopDetector.addNode(0, localNodeId),
             payload = payload
         )
 

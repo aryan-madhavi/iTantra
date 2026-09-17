@@ -86,7 +86,7 @@ class VirtualMeshNode(
             packetId = pid,
             source = nodeId,
             destination = destination,
-            visitedBloomFilter = 0,
+            visitedBloomFilter = com.astramesh.routing.LoopDetector.addNode(0, nodeId),
             payload = payload
         )
 

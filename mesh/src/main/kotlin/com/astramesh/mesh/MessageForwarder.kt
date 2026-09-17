@@ -76,7 +76,17 @@ class MessageForwarder(
         val route = routingTable.getRoute(packet.destination)
         if (route == null) {
             // Buffer packet until a route or direct connection becomes available
-            return ForwardingDecision.StoreAndForward(packet)
+            val updatedBloom = LoopDetector.addNode(packet.visitedBloomFilter, localNodeId)
+            val storablePacket = packet.copy(
+                ttl = packet.ttl - 1,
+                hopCount = packet.hopCount + 1,
+                visitedBloomFilter = updatedBloom
+            )
+            return ForwardingDecision.StoreAndForward(storablePacket)
+        }
+
+        if (route.nextHop == localNodeId) {
+            return ForwardingDecision.Drop("Routing loop detected: nextHop is self for destination ${packet.destination}")
         }
 
         val updatedBloom = LoopDetector.addNode(packet.visitedBloomFilter, localNodeId)
