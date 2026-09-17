@@ -465,17 +465,22 @@ class MeshEngine(
 
                 AstraLog.d("MeshEngine", "[UI_UPDATE] translatedText=\"$textToSpeak\" snippet=\"$snippet\"")
 
-                // 5. Synthesize speech on COMPLETE reassembled text
+                // 5. Audio Playback: Canned pre-recorded audio for SOS distress beacon; Lazy-loaded TTS for voice briefings & normal messages
                 try {
-                    AstraLog.d("MeshEngine", "[TTS_INPUT] language=${speechLanguage.name} text=\"$textToSpeak\"")
-                    AstraLog.d("MeshEngine", "[TTS_LANGUAGE] language=${speechLanguage.name} code=${speechLanguage.code}")
-                    speechSynthesizer?.synthesizeAndPlay(
-                        text = textToSpeak,
-                        language = speechLanguage,
-                        isEmergency = isEmergency
-                    )
+                    if (ithantra.messageType == com.astramesh.core.MessageType.SOS) {
+                        AstraLog.d("MeshEngine", "[SOS_BEACON_RX] Playing pre-recorded beacon audio for language=${speechLanguage.name}")
+                        speechSynthesizer?.playEmergencyBeacon(speechLanguage)
+                    } else {
+                        AstraLog.d("MeshEngine", "[TTS_INPUT] language=${speechLanguage.name} text=\"$textToSpeak\"")
+                        AstraLog.d("MeshEngine", "[TTS_LANGUAGE] language=${speechLanguage.name} code=${speechLanguage.code}")
+                        speechSynthesizer?.synthesizeAndPlay(
+                            text = textToSpeak,
+                            language = speechLanguage,
+                            isEmergency = isEmergency
+                        )
+                    }
                 } catch (e: Exception) {
-                    AstraLog.e("MeshEngine", "TTS playback failed", e)
+                    AstraLog.e("MeshEngine", "Audio playback failed", e)
                 }
                 return@launch
             }

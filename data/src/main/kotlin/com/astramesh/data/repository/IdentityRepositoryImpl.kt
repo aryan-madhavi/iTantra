@@ -62,4 +62,18 @@ class IdentityRepositoryImpl(
         localKeyPair = AstraKeyPair.generate()
         AstraLog.d("IdentityRepository", "IDENTITY_ROTATE wiped keys and re-generated permanent identity")
     }
+
+    override suspend fun getPreloadLanguage(): com.astramesh.core.Language {
+        val code = prefs?.getString("preload_tts_language", null)
+        return if (code != null) {
+            com.astramesh.core.Language.fromCode(code)
+        } else {
+            com.astramesh.core.Language.HINDI
+        }
+    }
+
+    override suspend fun setPreloadLanguage(language: com.astramesh.core.Language): AstraResult<Unit> = AstraResult.of {
+        prefs?.edit()?.putString("preload_tts_language", language.code)?.apply()
+        AstraLog.d("IdentityRepository", "Saved default preload TTS language: ${language.name} (${language.code})")
+    }
 }

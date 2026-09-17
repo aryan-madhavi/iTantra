@@ -15,4 +15,6 @@ interface SpeechSynthesizer {
         isEmergency: Boolean = false,
         onDone: (() -> Unit)? = null
     )
+
+    fun playEmergencyBeacon(language: Language) {}
 }

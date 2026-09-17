@@ -25,11 +25,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
@@ -333,6 +333,7 @@ fun EmergencyScreen(
                                                     // -------------------------------------------------------------
                                                     // STAGE 1: IMMEDIATE DISTRESS PACKET (NO MIC / NO STT WAIT)
                                                     // -------------------------------------------------------------
+                                                    voiceEngineManager?.playEmergencyBeacon(selectedLanguage)
                                                     emergencyBroadcastUseCase.sendImmediateSosBeacon(
                                                         language = selectedLanguage
                                                     )
@@ -489,7 +490,7 @@ fun EmergencyScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = AstraCrimson),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("TRANSMIT NOW", fontWeight = FontWeight.Bold)
                             }

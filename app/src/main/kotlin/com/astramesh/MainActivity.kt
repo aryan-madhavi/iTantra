@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -92,8 +94,10 @@ class MainActivity : ComponentActivity() {
         AstraLog.d("MainActivity", "Permissions result: allGranted=$allGranted")
         if (allGranted) {
             startMeshForegroundService()
-            lifecycleScope.launchWhenResumed {
-                meshRepository.startMesh()
+            lifecycleScope.launch {
+                repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                    meshRepository.startMesh()
+                }
             }
         }
     }
@@ -161,6 +165,10 @@ fun MainAppContent(
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         localNodeId = identityRepository.getRotatingNodeId()
+        val preloadLang = identityRepository.getPreloadLanguage()
+        voiceEngineManager?.preferredLanguage = preloadLang
+        meshRepository.setPreferredLanguage(preloadLang)
+        AstraLog.d("MainActivity", "Initialized TTS & voice language preference: ${preloadLang.name}")
         if (BlePermissionManager.hasPermissions(context)) {
             AstraLog.d("MainActivity", "Permissions granted, starting MeshEngine...")
             meshRepository.startMesh()

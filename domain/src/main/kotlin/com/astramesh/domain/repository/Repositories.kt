@@ -53,6 +53,8 @@ interface IdentityRepository {
     suspend fun getRotatingNodeId(): NodeId
     suspend fun rotateIdentityEpoch(): NodeId
     suspend fun wipeAllCryptographicKeys(): AstraResult<Unit>
+    suspend fun getPreloadLanguage(): com.astramesh.core.Language
+    suspend fun setPreloadLanguage(language: com.astramesh.core.Language): AstraResult<Unit>
 }
 
 interface AttachmentRepository {

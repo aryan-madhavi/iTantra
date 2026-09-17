@@ -15,7 +15,7 @@ class NllbTokenizerTest {
         @JvmStatic
         fun setUp() {
             // Locate tokenizer.json by traversing upward from current working directory
-            var currentDir: File? = File(System.getProperty("user.dir"))
+            var currentDir: File? = File(System.getProperty("user.dir") ?: ".")
             var modelFile: File? = null
             while (currentDir != null) {
                 val candidate = File(currentDir, "models_archive/mt/nllb200-int8-onnx/tokenizer.json")

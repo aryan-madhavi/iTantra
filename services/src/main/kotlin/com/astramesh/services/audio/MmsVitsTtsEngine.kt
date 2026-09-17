@@ -39,29 +39,24 @@ data class TtsLanguageTokenizer(
 /**
  * On-Device MMS-TTS (VITS) Neural Text-to-Speech Engine using ONNX Runtime Mobile.
  * Synthesizes 16kHz mono PCM16 audio in pure offline mode across 10 Indic languages.
- * Implements bounded LRU memory caching (max 3 languages active simultaneously).
- * Enforces non-interruptible max-volume playback for emergency and alert broadcasts.
+ *
+ * MEMORY FOOTPRINT & LIFECYCLE MANAGEMENT:
+ * Enforces strict single-model resident policy in RAM (one active OrtSession at a time).
+ * When the language is switched, the previously loaded ONNX session is explicitly closed,
+ * nulled, and released before loading the new language's model.
+ * All model swaps and inference executions are synchronized on `sessionLock` to ensure
+ * in-flight inference requests complete safely before any session disposal.
  */
 class MmsVitsTtsEngine(
-    private val context: Context,
-    private val maxCacheSize: Int = SttConfig.TTS_MAX_CACHE_SIZE
+    private val context: Context
 ) {
     private val tag = "MmsVitsTtsEngine"
     private var ortEnv: OrtEnvironment? = null
 
-    // LRU Cache for active language sessions with automatic session closure
-    private val sessionCache = object : LinkedHashMap<Language, OrtSession>(maxCacheSize, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Language, OrtSession>?): Boolean {
-            if (size > maxCacheSize && eldest != null) {
-                try {
-                    eldest.value.close()
-                    AstraLog.d(tag, "Evicted and closed MMS-TTS session for ${eldest.key.name}")
-                } catch (_: Exception) {}
-                return true
-            }
-            return false
-        }
-    }
+    // Single active ONNX Runtime session and its associated language
+    private var activeSession: OrtSession? = null
+    private var activeLanguage: Language? = null
+    private val sessionLock = Any()
 
     private val tokenizerCache = mutableMapOf<Language, TtsLanguageTokenizer>()
     private var currentAudioTrack: AudioTrack? = null
@@ -75,10 +70,6 @@ class MmsVitsTtsEngine(
             ortEnv = OrtEnvironment.getEnvironment()
         } catch (e: Exception) {
             AstraLog.w(tag, "MMS-TTS ORT Environment creation failed: ${e.message}")
-        }
-        // Eagerly resolve and log tokenizer configurations across all supported languages
-        for (lang in Language.entries) {
-            getOrLoadTokenizer(lang)
         }
     }
 
@@ -155,11 +146,38 @@ class MmsVitsTtsEngine(
         }
     }
 
-    private fun getOrCreateSession(language: Language): OrtSession? {
-        synchronized(sessionCache) {
-            sessionCache[language]?.let { return it }
+    /**
+     * Gets or creates the ONNX session for the given language.
+     * Enforces single-model-resident policy: any existing session for another language
+     * is explicitly closed and nulled before creating the new session.
+     */
+    fun getOrCreateSession(language: Language): OrtSession? {
+        synchronized(sessionLock) {
+            if (activeLanguage == language && activeSession != null) {
+                return activeSession
+            }
 
-            val env = ortEnv ?: return null
+            // Explicitly close previously loaded ONNX session to prevent RAM ballooning
+            activeSession?.let { oldSession ->
+                try {
+                    oldSession.close()
+                    AstraLog.i(tag, "MMS-TTS: Explicitly closed and released ONNX session for ${activeLanguage?.name} to enforce single-model RAM footprint")
+                } catch (e: Exception) {
+                    AstraLog.w(tag, "MMS-TTS: Error closing previous session: ${e.message}")
+                }
+            }
+            activeSession = null
+            activeLanguage = null
+
+            val env = ortEnv ?: run {
+                try {
+                    OrtEnvironment.getEnvironment().also { ortEnv = it }
+                } catch (e: Exception) {
+                    AstraLog.w(tag, "MMS-TTS ORT Environment creation failed: ${e.message}")
+                    null
+                }
+            } ?: return null
+
             val modelPath = "models/tts/${language.code}/model.onnx"
             try {
                 if (ModelAssetLoader.assetExists(context, modelPath)) {
@@ -168,15 +186,50 @@ class MmsVitsTtsEngine(
                         setIntraOpNumThreads(2)
                     }
                     val session = env.createSession(modelFile.absolutePath, options)
-                    sessionCache[language] = session
-                    AstraLog.i(tag, "Loaded MMS-TTS ONNX session for ${language.name} from '${modelFile.absolutePath}' (${modelFile.length()} bytes)")
+                    activeSession = session
+                    activeLanguage = language
+                    AstraLog.i(tag, "Loaded MMS-TTS ONNX session for ${language.name} from '${modelFile.absolutePath}' (${modelFile.length()} bytes). Single model resident in RAM.")
                     return session
+                } else {
+                    AstraLog.w(tag, "MMS-TTS model asset not found: $modelPath")
                 }
             } catch (e: Exception) {
                 AstraLog.w(tag, "MMS-TTS model load failure for ${language.code}: ${e.message}")
             }
             return null
         }
+    }
+
+    /**
+     * Preloads the specified language model into memory, releasing any previously loaded model.
+     */
+    fun preload(language: Language): Boolean {
+        return getOrCreateSession(language) != null
+    }
+
+    /**
+     * Unloads and closes the active model session without closing the ORT environment.
+     * Useful for reclaiming memory when TTS is idle.
+     */
+    fun unloadModel() {
+        synchronized(sessionLock) {
+            activeSession?.let { session ->
+                try {
+                    session.close()
+                    AstraLog.i(tag, "MMS-TTS: Unloaded and released active model for ${activeLanguage?.name}")
+                } catch (e: Exception) {
+                    AstraLog.w(tag, "MMS-TTS: Error unloading model: ${e.message}")
+                }
+            }
+            activeSession = null
+            activeLanguage = null
+        }
+    }
+
+    fun getCurrentLoadedLanguage(): Language? = synchronized(sessionLock) { activeLanguage }
+
+    fun isModelLoaded(language: Language): Boolean = synchronized(sessionLock) {
+        activeLanguage == language && activeSession != null
     }
 
     /**
@@ -202,7 +255,7 @@ class MmsVitsTtsEngine(
         }
 
         val normalized = TTSNormalizer.normalizeForTTS(text, language)
-        val chunks = LinguisticChunker.chunkText(text, language)
+        val chunks = LinguisticChunker.chunkText(normalized, language)
         AstraLog.d(tag, "Synthesizing text in ${chunks.size} linguistic chunks for lang=${language.name} (isEmergency=$isEmergency)")
 
         val trackReady = initAudioTrack(isEmergency)
@@ -236,95 +289,98 @@ class MmsVitsTtsEngine(
 
     /**
      * Synthesize a text chunk to 16kHz PCM audio bytes.
+     * Guarded by `sessionLock` to ensure model swaps do not close active sessions mid-inference.
      */
     fun synthesizeChunkToPcm(chunkText: String, language: Language): ByteArray {
-        val session = getOrCreateSession(language)
-        val env = ortEnv
-        val tokenizer = getOrLoadTokenizer(language)
-        val vocab = tokenizer.charToId
-        val padId = tokenizer.padTokenId
-        val unkId = tokenizer.unkTokenId
+        synchronized(sessionLock) {
+            val session = getOrCreateSession(language)
+            val env = ortEnv
+            val tokenizer = getOrLoadTokenizer(language)
+            val vocab = tokenizer.charToId
+            val padId = tokenizer.padTokenId
+            val unkId = tokenizer.unkTokenId
 
-        if (session != null && env != null && vocab.isNotEmpty()) {
-            try {
-                val startNs = System.nanoTime()
+            if (session != null && env != null && vocab.isNotEmpty()) {
+                try {
+                    val startNs = System.nanoTime()
 
-                // MMS-TTS VITS tokenization: characters mapped with dynamic interleaved padTokenId
-                val processedText = if (language == Language.ENGLISH) chunkText.lowercase() else chunkText
-                val tokens = mutableListOf<Long>()
-                tokens.add(padId)
-                for (i in 0 until processedText.length) {
-                    val char = processedText[i]
-                    val charStr = char.toString()
-                    val tokenId = vocab[charStr]
-                    if (tokenId != null) {
-                        tokens.add(tokenId.toLong())
-                        tokens.add(padId)
-                    } else {
-                        // Map unrecognized characters to resolved unkTokenId to preserve timing/length
-                        tokens.add(unkId)
-                        tokens.add(padId)
+                    // MMS-TTS VITS tokenization: characters mapped with dynamic interleaved padTokenId
+                    val processedText = if (language == Language.ENGLISH) chunkText.lowercase() else chunkText
+                    val tokens = mutableListOf<Long>()
+                    tokens.add(padId)
+                    for (i in 0 until processedText.length) {
+                        val char = processedText[i]
+                        val charStr = char.toString()
+                        val tokenId = vocab[charStr]
+                        if (tokenId != null) {
+                            tokens.add(tokenId.toLong())
+                            tokens.add(padId)
+                        } else {
+                            // Map unrecognized characters to resolved unkTokenId to preserve timing/length
+                            tokens.add(unkId)
+                            tokens.add(padId)
+                        }
                     }
+
+                    if (tokens.size <= 1) return ByteArray(0)
+
+                    val tokenArray = tokens.toLongArray()
+                    val seqLen = tokenArray.size.toLong()
+
+                    val inputIdsTensor = OnnxTensor.createTensor(
+                        env,
+                        LongBuffer.wrap(tokenArray),
+                        longArrayOf(1, seqLen)
+                    )
+
+                    val maskArray = LongArray(tokenArray.size) { 1L }
+                    val attentionMaskTensor = OnnxTensor.createTensor(
+                        env,
+                        LongBuffer.wrap(maskArray),
+                        longArrayOf(1, seqLen)
+                    )
+
+                    val inputs = mapOf(
+                        "input_ids" to inputIdsTensor,
+                        "attention_mask" to attentionMaskTensor
+                    )
+
+                    val results = session.run(inputs)
+                    val outputTensor = results.get(0) as? OnnxTensor
+                    val floatBuffer = outputTensor?.floatBuffer
+
+                    val pcmBytes = if (floatBuffer != null) {
+                        val count = floatBuffer.remaining()
+                        val floatSamples = FloatArray(count)
+                        floatBuffer.get(floatSamples)
+                        floatToPcm16(floatSamples)
+                    } else {
+                        ByteArray(0)
+                    }
+
+                    val endNs = System.nanoTime()
+                    val durationMs = (endNs - startNs) / 1_000_000.0
+                    val audioSamples = pcmBytes.size / 2
+                    val audioDurationMs = (audioSamples * 1000.0) / SttConfig.SAMPLE_RATE
+                    val rtf = if (audioDurationMs > 0) durationMs / audioDurationMs else 0.0
+
+                    AstraLog.d(
+                        tag,
+                        "TTS chunk synthesis [lang=${language.code}]: duration=${String.format(Locale.US, "%.1f", durationMs)}ms (audio=${String.format(Locale.US, "%.1f", audioDurationMs)}ms, RTF=${String.format(Locale.US, "%.2f", rtf)})"
+                    )
+
+                    inputIdsTensor.close()
+                    attentionMaskTensor.close()
+                    results.close()
+
+                    return pcmBytes
+                } catch (e: Exception) {
+                    AstraLog.w(tag, "MMS-TTS inference error for '${language.code}': ${e.message}")
                 }
-
-                if (tokens.size <= 1) return ByteArray(0)
-
-                val tokenArray = tokens.toLongArray()
-                val seqLen = tokenArray.size.toLong()
-
-                val inputIdsTensor = OnnxTensor.createTensor(
-                    env,
-                    LongBuffer.wrap(tokenArray),
-                    longArrayOf(1, seqLen)
-                )
-
-                val maskArray = LongArray(tokenArray.size) { 1L }
-                val attentionMaskTensor = OnnxTensor.createTensor(
-                    env,
-                    LongBuffer.wrap(maskArray),
-                    longArrayOf(1, seqLen)
-                )
-
-                val inputs = mapOf(
-                    "input_ids" to inputIdsTensor,
-                    "attention_mask" to attentionMaskTensor
-                )
-
-                val results = session.run(inputs)
-                val outputTensor = results.get(0) as? OnnxTensor
-                val floatBuffer = outputTensor?.floatBuffer
-
-                val pcmBytes = if (floatBuffer != null) {
-                    val count = floatBuffer.remaining()
-                    val floatSamples = FloatArray(count)
-                    floatBuffer.get(floatSamples)
-                    floatToPcm16(floatSamples)
-                } else {
-                    ByteArray(0)
-                }
-
-                val endNs = System.nanoTime()
-                val durationMs = (endNs - startNs) / 1_000_000.0
-                val audioSamples = pcmBytes.size / 2
-                val audioDurationMs = (audioSamples * 1000.0) / SttConfig.SAMPLE_RATE
-                val rtf = if (audioDurationMs > 0) durationMs / audioDurationMs else 0.0
-
-                AstraLog.d(
-                    tag,
-                    "TTS chunk synthesis [lang=${language.code}]: duration=${String.format(Locale.US, "%.1f", durationMs)}ms (audio=${String.format(Locale.US, "%.1f", audioDurationMs)}ms, RTF=${String.format(Locale.US, "%.2f", rtf)})"
-                )
-
-                inputIdsTensor.close()
-                attentionMaskTensor.close()
-                results.close()
-
-                return pcmBytes
-            } catch (e: Exception) {
-                AstraLog.w(tag, "MMS-TTS inference error for '${language.code}': ${e.message}")
             }
-        }
 
-        return ByteArray(0)
+            return ByteArray(0)
+        }
     }
 
     private fun floatToPcm16(floatSamples: FloatArray): ByteArray {
@@ -424,13 +480,11 @@ class MmsVitsTtsEngine(
 
     fun release() {
         stopPlayback()
-        synchronized(sessionCache) {
-            for (session in sessionCache.values) {
-                try { session.close() } catch (_: Exception) {}
-            }
-            sessionCache.clear()
-        }
+        unloadModel()
         try { ortEnv?.close() } catch (_: Exception) {}
         ortEnv = null
+        synchronized(tokenizerCache) {
+            tokenizerCache.clear()
+        }
     }
 }

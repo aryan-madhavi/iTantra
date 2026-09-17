@@ -25,7 +25,7 @@ class NllbTranslationEndToEndTest {
         @BeforeClass
         @JvmStatic
         fun setUp() {
-            var currentDir: File? = File(System.getProperty("user.dir"))
+            var currentDir: File? = File(System.getProperty("user.dir") ?: ".")
             var modelsDir: File? = null
             while (currentDir != null) {
                 val candidate = File(currentDir, "models_archive/mt/nllb200-int8-onnx")

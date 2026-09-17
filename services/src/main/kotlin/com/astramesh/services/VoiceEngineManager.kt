@@ -25,9 +25,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
@@ -36,10 +36,11 @@ import kotlin.math.sqrt
  * Enterprise Offline Voice & Audio Engine Manager for iTantra / AstraMesh.
  * Fully on-device Edge-ML Pipeline:
  * 1. Silero VAD v5 ONNX Voice Activity Detection (Sub-millisecond, zero GC churn)
- * 2. IndicConformer INT8 ONNX Bounded Streaming Speech-to-Text
+ * 2. IndicConformer INT8 ONNX Bounded Streaming Speech-to-Text (On-Demand Lazy Scoped Lifecycle)
  * 3. Rule-based Sub-millisecond Multilingual Emergency Classifier
  * 4. Sub-millisecond Zero-RAM Offline Multilingual Translation Engine
- * 5. MMS-TTS (VITS) On-Device Neural Synthesis Engine with Non-Interruptible Max Volume Alerting
+ * 5. MMS-TTS (VITS) Single-Model-Resident On-Device Neural Synthesis Engine
+ * 6. Pre-recorded WAV SOS Alert Audio Dispatch
  */
 class VoiceEngineManager(
     private val context: Context
@@ -56,11 +57,30 @@ class VoiceEngineManager(
         const val SILENCE_THRESHOLD_RMS = 500
         private const val MAX_PLAYBACK_QUEUE_SIZE = 100
         private const val TAG = "ASTRA_VOICE"
+
+        /**
+         * Idle grace period before unloading the heavy STT ONNX acoustic model session from memory.
+         * Balances rapid consecutive recording flows without thrashing disk I/O while keeping background RAM minimal.
+         */
+        const val STT_IDLE_TIMEOUT_MS = 45_000L
+
+        /**
+         * Idle grace period before unloading the active MMS-TTS neural voice model session.
+         */
+        const val TTS_IDLE_TIMEOUT_MS = 60_000L
     }
 
     private val vadEngine = SileroVadEngine(context)
-    private val sttEngine = IndicConformerSttEngine(context)
+
+    // STT Engine is lazily instantiated and held only during active recording/comm sessions
+    @Volatile
+    private var sttEngine: IndicConformerSttEngine? = null
+    private val sttLock = Any()
+    private var sttIdleJob: Job? = null
+
+    // TTS Engine enforces single-model-resident policy in RAM
     private val ttsEngine = MmsVitsTtsEngine(context)
+    private var ttsIdleJob: Job? = null
 
     @Volatile
     private var nllbEngine: NllbTranslationEngine? = null
@@ -70,6 +90,59 @@ class VoiceEngineManager(
         return nllbEngine ?: synchronized(nllbLock) {
             nllbEngine ?: NllbTranslationEngine(context).also { nllbEngine = it }
         }
+    }
+
+    private fun getOrInitSttEngine(): IndicConformerSttEngine {
+        synchronized(sttLock) {
+            sttIdleJob?.cancel()
+            sttIdleJob = null
+            return sttEngine ?: IndicConformerSttEngine(context).also {
+                sttEngine = it
+                AstraLog.i(TAG, "ASTRA_VOICE: IndicConformer STT Engine initialized on-demand for active speech session")
+            }
+        }
+    }
+
+    private fun scheduleSttIdleUnload() {
+        synchronized(sttLock) {
+            sttIdleJob?.cancel()
+            sttIdleJob = scope.launch {
+                delay(STT_IDLE_TIMEOUT_MS)
+                unloadSttEngine()
+            }
+        }
+    }
+
+    /**
+     * Explicitly unloads and releases STT engine resources to reclaim memory.
+     */
+    fun unloadSttEngine() {
+        synchronized(sttLock) {
+            sttIdleJob?.cancel()
+            sttIdleJob = null
+            sttEngine?.let {
+                it.release()
+                sttEngine = null
+                AstraLog.i(TAG, "ASTRA_VOICE: STT engine idle timeout expired ($STT_IDLE_TIMEOUT_MS ms) — IndicConformer INT8 ONNX session released from RAM")
+            }
+        }
+    }
+
+    private fun scheduleTtsIdleUnload() {
+        ttsIdleJob?.cancel()
+        ttsIdleJob = scope.launch {
+            delay(TTS_IDLE_TIMEOUT_MS)
+            ttsEngine.unloadModel()
+            AstraLog.i(TAG, "ASTRA_VOICE: TTS engine idle timeout expired ($TTS_IDLE_TIMEOUT_MS ms) — MMS-TTS ONNX session released from RAM")
+        }
+    }
+
+    /**
+     * Preloads the default TTS model into memory.
+     */
+    fun preloadTts(language: Language = preferredLanguage) {
+        ttsIdleJob?.cancel()
+        ttsEngine.preload(language)
     }
 
     private var audioRecord: AudioRecord? = null
@@ -128,10 +201,10 @@ class VoiceEngineManager(
 
             AstraLog.i(TAG, "ASTRA_VOICE: ================ AI ASSET AUDIT ================")
             AstraLog.i(TAG, "ASTRA_VOICE: VAD initialized: name=Silero VAD v5, exists=$vadExists, size=$vadSize bytes")
-            AstraLog.i(TAG, "ASTRA_VOICE: STT initialized: name=IndicConformer INT8, exists=$sttExists, size=$sttSize bytes")
+            AstraLog.i(TAG, "ASTRA_VOICE: STT config: name=IndicConformer INT8 (On-Demand Lazy), exists=$sttExists, size=$sttSize bytes")
             AstraLog.i(TAG, "ASTRA_VOICE: STT TOKENS: exists=$tokensExists, size=$tokensSize bytes")
             AstraLog.i(TAG, "ASTRA_VOICE: MT ENGINE: name=Offline Multilingual Rule Engine (Zero-RAM), languages=10 Indic")
-            AstraLog.i(TAG, "ASTRA_VOICE: TTS MODEL: name=MMS-TTS (VITS) Multi-Language Engine, cacheSize=3")
+            AstraLog.i(TAG, "ASTRA_VOICE: TTS MODEL: name=MMS-TTS (VITS) Single-Model-Resident, languages=10 Indic")
             AstraLog.i(TAG, "ASTRA_VOICE: =================================================")
         } catch (e: Exception) {
             AstraLog.w(TAG, "ASTRA_VOICE: Asset audit warning: ${e.message}")
@@ -315,6 +388,7 @@ class VoiceEngineManager(
 
     /**
      * Starts offline streaming Speech-to-Text with Silero VAD segmentation.
+     * Initializes the IndicConformer STT engine on demand if not already resident.
      *
      * @param language Target language for STT decoding
      * @param onRmsChanged Real-time mic volume level (for UI visualizers)
@@ -340,7 +414,9 @@ class VoiceEngineManager(
         recognitionDeferred = deferred
         preferredLanguage = language
         vadEngine.resetState()
-        sttEngine.reset()
+
+        val engine = getOrInitSttEngine()
+        engine.reset()
 
         val bufferSize = AudioRecord.getMinBufferSize(
             SttConfig.SAMPLE_RATE,
@@ -361,6 +437,7 @@ class VoiceEngineManager(
                 AstraLog.e(TAG, "ASTRA_VOICE: AudioRecord init failed for STT")
                 isSttActive.set(false)
                 deferred.complete("")
+                scheduleSttIdleUnload()
                 return
             }
 
@@ -390,7 +467,8 @@ class VoiceEngineManager(
                         )
 
                         if (vadEvent.isSpeech) {
-                            val partial = sttEngine.processChunk(floatBuffer, language)
+                            val activeStt = sttEngine ?: getOrInitSttEngine()
+                            val partial = activeStt.processChunk(floatBuffer, language)
                             if (partial.isNotBlank() && partial != currentTranscript) {
                                 currentTranscript = partial
                                 onPartialResult?.invoke(partial)
@@ -401,7 +479,8 @@ class VoiceEngineManager(
 
                         // Event-driven immediate sentence completion on VAD SPEECH_END
                         if (vadEvent.eventType == VADEventType.SPEECH_END) {
-                            val finalResult = sttEngine.finalize(language)
+                            val activeStt = sttEngine ?: getOrInitSttEngine()
+                            val finalResult = activeStt.finalize(language)
                             if (finalResult.isNotBlank()) {
                                 currentTranscript = finalResult
                                 AstraLog.d(TAG, "[STT] language=${language.name} text=\"$finalResult\"")
@@ -418,6 +497,7 @@ class VoiceEngineManager(
             isSttActive.set(false)
             deferred.complete("")
             cleanupSttRecord()
+            scheduleSttIdleUnload()
         }
     }
 
@@ -425,7 +505,8 @@ class VoiceEngineManager(
         isSttActive.set(false)
         cleanupSttRecord()
 
-        val finalResult = sttEngine.finalize(preferredLanguage)
+        val activeStt = sttEngine
+        val finalResult = activeStt?.finalize(preferredLanguage) ?: ""
         if (finalResult.isNotBlank()) {
             currentTranscript = finalResult
             AstraLog.d(TAG, "ASTRA_VOICE: STT final = $finalResult")
@@ -437,6 +518,7 @@ class VoiceEngineManager(
         sttRecordJob?.cancel()
         sttRecordJob = null
 
+        scheduleSttIdleUnload()
         return currentTranscript.trim()
     }
 
@@ -446,6 +528,7 @@ class VoiceEngineManager(
         sttRecordJob?.cancel()
         sttRecordJob = null
         recognitionDeferred?.complete(currentTranscript)
+        scheduleSttIdleUnload()
     }
 
     private fun cleanupSttRecord() {
@@ -480,6 +563,55 @@ class VoiceEngineManager(
         return nllbResult
     }
 
+    /**
+     * Plays pre-recorded emergency beacon audio directly from asset package for the given language.
+     * Bypasses TTS synthesis completely for canned SOS beacon alerts.
+     */
+    override fun playEmergencyBeacon(language: Language) {
+        triggerEmergencyVibration()
+        playEmergencyAlertSiren()
+
+        val assetPath = "audio/emergency/${language.code}.wav"
+        // Emergency beacon audio files are pending from teammate — expected at app/src/main/assets/audio/emergency/<lang>.wav,
+        // one per supported language code (bn, en, gu, hi, kn, ml, mr, or, ta, te).
+        // Do not fall back to TTS synthesis here per product decision — if the file is missing, this will log a warning
+        // and safely no-op without crashing or synthesizing TTS.
+        try {
+            val afd = context.assets.openFd(assetPath)
+            val mediaPlayer = android.media.MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                setOnCompletionListener { mp ->
+                    try { mp.release() } catch (_: Exception) {}
+                }
+                setOnErrorListener { mp, what, extra ->
+                    AstraLog.w(TAG, "Emergency beacon playback error: what=$what extra=$extra")
+                    try { mp.release() } catch (_: Exception) {}
+                    true
+                }
+                prepare()
+                start()
+            }
+            AstraLog.i(TAG, "Playing pre-recorded emergency beacon audio for ${language.code} from $assetPath")
+        } catch (e: Exception) {
+            AstraLog.w(
+                TAG,
+                "Emergency beacon audio file '$assetPath' could not be loaded: ${e.message}. " +
+                "Pending from teammate at app/src/main/assets/audio/emergency/${language.code}.wav. " +
+                "Safely no-oping without TTS fallback per product architecture decision."
+            )
+        }
+    }
+
+    /**
+     * Synthesizes and plays text via MMS-TTS in lazy single-model resident mode.
+     */
     fun speakText(
         text: String,
         language: Language = Language.ENGLISH,
@@ -506,9 +638,11 @@ class VoiceEngineManager(
             playEmergencyAlertSiren()
         }
 
+        ttsIdleJob?.cancel()
         scope.launch {
             ttsEngine.synthesizeAndPlay(cleanText, language, isEmergency) {
                 AstraLog.d(TAG, "ASTRA_VOICE: AudioTrack playback completed (TTS completed)")
+                scheduleTtsIdleUnload()
                 onDone?.invoke()
             }
         }
@@ -563,9 +697,12 @@ class VoiceEngineManager(
         stopRecording()
         stopPlayback()
         stopStt()
+        sttIdleJob?.cancel()
+        ttsIdleJob?.cancel()
         ttsEngine.stopPlayback()
         vadEngine.release()
-        sttEngine.release()
+        sttEngine?.release()
+        sttEngine = null
         ttsEngine.release()
         nllbEngine?.release()
         nllbEngine = null

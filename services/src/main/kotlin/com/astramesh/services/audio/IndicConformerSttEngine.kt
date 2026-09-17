@@ -20,6 +20,10 @@ import kotlin.math.min
  * Extracts 80-bin Log-Mel Spectrogram features [1, 80, time] matching NeMo acoustic preprocessor contract.
  * Features language/script token range filtering during CTC decoding to ensure correct script output.
  *
+ * MEMORY FOOTPRINT & LIFECYCLE MANAGEMENT:
+ * The heavy ONNX session is created lazily on-demand when STT recording begins, and is explicitly
+ * released when STT stops or after an idle timeout to avoid consuming background RAM.
+ *
  * Architecture Note on Streaming Capability:
  * The exported IndicConformer model (model.int8.onnx) is a single-shot CTC acoustic model with input tensors
  * `processed_signal` and `processed_signal_length` producing output logits (`logprobs`). It does not contain
@@ -52,11 +56,11 @@ class IndicConformerSttEngine(
     private var chunkCount = 0
 
     val isInitialized: Boolean
-        get() = ortSession != null && idToToken.isNotEmpty()
+        get() = synchronized(this) { ortSession != null && idToToken.isNotEmpty() }
 
     init {
         loadVocabulary()
-        initializeSession()
+        // Session initialization is deferred until actively needed by startStt / decode pass
     }
 
     private fun loadVocabulary() {
@@ -86,7 +90,13 @@ class IndicConformerSttEngine(
         }
     }
 
-    private fun initializeSession() {
+    @Synchronized
+    fun ensureSessionInitialized(): Boolean {
+        if (ortSession != null) return true
+        return initializeSession()
+    }
+
+    private fun initializeSession(): Boolean {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
             val modelFile = ModelAssetLoader.getOrExtractAssetFile(context, modelAssetPath)
@@ -96,9 +106,11 @@ class IndicConformerSttEngine(
             ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
             val inputNames = ortSession?.inputNames?.joinToString(", ") ?: "none"
             val outputNames = ortSession?.outputNames?.joinToString(", ") ?: "none"
-            AstraLog.i(tag, "STT initialized: IndicConformer INT8 ONNX session loaded from '${modelFile.absolutePath}' (inputs=[$inputNames], outputs=[$outputNames])")
+            AstraLog.i(tag, "STT initialized: IndicConformer INT8 ONNX session loaded on-demand from '${modelFile.absolutePath}' (inputs=[$inputNames], outputs=[$outputNames])")
+            return ortSession != null
         } catch (e: Exception) {
             AstraLog.w(tag, "STT initialization failed: ${e.message}")
+            return false
         }
     }
 
@@ -154,6 +166,7 @@ class IndicConformerSttEngine(
     private fun decodeAudio(samples: FloatArray, language: Language, isPartial: Boolean = false): String {
         if (samples.size < SttConfig.FRAME_SIZE_SAMPLES) return ""
 
+        ensureSessionInitialized()
         val session = ortSession
         val env = ortEnv
         if (session == null || env == null) {
@@ -255,7 +268,6 @@ class IndicConformerSttEngine(
             var maxIdx = blankId
 
             for (v in 0 until vocabSize) {
-
                 val flatIdx = if (isTimeFirst) t * vocabSize + v else v * timeSteps + t
                 if (flatIdx < buffer.capacity()) {
                     val score = buffer.get(flatIdx)
@@ -293,11 +305,14 @@ class IndicConformerSttEngine(
     }
 
     fun release() {
-        try {
-            ortSession?.close()
-            ortEnv?.close()
-        } catch (_: Exception) {}
-        ortSession = null
-        ortEnv = null
+        synchronized(this) {
+            try {
+                ortSession?.close()
+                ortEnv?.close()
+            } catch (_: Exception) {}
+            ortSession = null
+            ortEnv = null
+            AstraLog.i(tag, "STT: IndicConformer INT8 ONNX session released and nulled.")
+        }
     }
 }
