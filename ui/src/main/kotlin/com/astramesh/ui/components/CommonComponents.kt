@@ -292,10 +292,9 @@ fun TacticalMessageLogItem(
     val isUntranslatedBadge = parsed.isUntranslated || (untranslatedLangCode != null && parsed.translationBadge == null)
 
     Card(
+        onClick = { isExpanded = !isExpanded },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { isExpanded = !isExpanded }
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioLowBouncy,

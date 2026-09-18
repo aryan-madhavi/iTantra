@@ -232,7 +232,7 @@ fun EmergencyScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(140.dp),
+                .weight(1f),
             colors = CardDefaults.cardColors(containerColor = AstraSurface),
             shape = RoundedCornerShape(10.dp)
         ) {

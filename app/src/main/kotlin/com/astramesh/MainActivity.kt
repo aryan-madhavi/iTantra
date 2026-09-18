@@ -31,10 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.astramesh.core.ChatId
 import com.astramesh.core.NodeId
 import com.astramesh.domain.repository.ChatRepository
@@ -382,7 +384,13 @@ fun MainAppScaffold(
                     )
                 }
 
-                composable(Screen.Conversation.route) { backStackEntry ->
+                composable(
+                    route = Screen.Conversation.route,
+                    arguments = listOf(
+                        navArgument("chatId") { type = NavType.StringType },
+                        navArgument("recipientId") { type = NavType.StringType }
+                    )
+                ) { backStackEntry ->
                     val chatIdStr = backStackEntry.arguments?.getString("chatId") ?: ""
                     val recipientIdStr = backStackEntry.arguments?.getString("recipientId") ?: "0"
                     val recipientNodeId = NodeId(recipientIdStr.toLongOrNull() ?: 0L)

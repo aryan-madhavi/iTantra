@@ -29,7 +29,7 @@ object MeshModule {
 
     @Provides
     @Singleton
-    fun provideBleScannerManager(): BleScannerManager = BleScannerManager()
+    fun provideBleScannerManager(@ApplicationContext context: Context): BleScannerManager = BleScannerManager(context)
 
     @Provides
     @Singleton

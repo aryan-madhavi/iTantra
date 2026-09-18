@@ -68,6 +68,11 @@ class VoiceEngineManager(
          * Idle grace period before unloading the active MMS-TTS neural voice model session.
          */
         const val TTS_IDLE_TIMEOUT_MS = 60_000L
+
+        /**
+         * Idle grace period before unloading the NLLB-200 translation models.
+         */
+        const val NLLB_IDLE_TIMEOUT_MS = 60_000L
     }
 
     private val vadEngine = SileroVadEngine(context)
@@ -85,10 +90,16 @@ class VoiceEngineManager(
     @Volatile
     private var nllbEngine: NllbTranslationEngine? = null
     private val nllbLock = Any()
+    private var nllbIdleJob: Job? = null
 
     private fun getOrInitNllbEngine(): NllbTranslationEngine {
         return nllbEngine ?: synchronized(nllbLock) {
-            nllbEngine ?: NllbTranslationEngine(context).also { nllbEngine = it }
+            nllbIdleJob?.cancel()
+            nllbIdleJob = null
+            nllbEngine ?: NllbTranslationEngine(context).also { 
+                nllbEngine = it
+                AstraLog.i(TAG, "ASTRA_VOICE: NLLB Translation Engine initialized on-demand")
+            }
         }
     }
 
@@ -124,6 +135,31 @@ class VoiceEngineManager(
                 it.release()
                 sttEngine = null
                 AstraLog.i(TAG, "ASTRA_VOICE: STT engine idle timeout expired ($STT_IDLE_TIMEOUT_MS ms) — IndicConformer INT8 ONNX session released from RAM")
+            }
+        }
+    }
+
+    private fun scheduleNllbIdleUnload() {
+        synchronized(nllbLock) {
+            nllbIdleJob?.cancel()
+            nllbIdleJob = scope.launch {
+                delay(NLLB_IDLE_TIMEOUT_MS)
+                unloadNllbEngine()
+            }
+        }
+    }
+
+    /**
+     * Explicitly unloads and releases NLLB engine resources to reclaim memory.
+     */
+    fun unloadNllbEngine() {
+        synchronized(nllbLock) {
+            nllbIdleJob?.cancel()
+            nllbIdleJob = null
+            nllbEngine?.let {
+                it.release()
+                nllbEngine = null
+                AstraLog.i(TAG, "ASTRA_VOICE: NLLB engine idle timeout expired ($NLLB_IDLE_TIMEOUT_MS ms) — INT8 ONNX session released from RAM")
             }
         }
     }
@@ -564,6 +600,7 @@ class VoiceEngineManager(
         val nllbResult = nllb.translate(text, sourceLang, targetLang)
         val path = if (nllbResult != text && nllbResult.isNotBlank()) "nllb" else "none"
         AstraLog.d(TAG, "ASTRA_VOICE: [TRANSLATION path=\"$path\"] ${sourceLang.name} -> ${targetLang.name}: '$text' -> '$nllbResult'")
+        scheduleNllbIdleUnload()
         return nllbResult
     }
 

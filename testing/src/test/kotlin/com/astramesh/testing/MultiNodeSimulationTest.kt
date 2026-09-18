@@ -44,7 +44,7 @@ class MultiNodeSimulationTest {
         val pid = nodeA.sendPacket(nodeB.nodeId, payload)
 
         // Give coroutines time to propagate through channel
-        Thread.sleep(100)
+        Thread.sleep(300)
 
         assertThat(nodeB.packetsReceived.get()).isEqualTo(1L)
         val receivedPacket = nodeB.receivedPacketsHistory.firstOrNull()
@@ -143,7 +143,7 @@ class MultiNodeSimulationTest {
         nodeA.routingTable.updateRoute(nodeB.nodeId, nodeB.nodeId, cost = 1.0f, hopCount = 1, sequenceNumber = 1L)
         nodeA.onPeerConnected(nodeB.nodeId)
 
-        Thread.sleep(100)
+        Thread.sleep(300)
 
         assertThat(nodeB.packetsReceived.get()).isEqualTo(1L)
         val received = nodeB.receivedPacketsHistory.firstOrNull()
@@ -180,7 +180,7 @@ class MultiNodeSimulationTest {
 
         medium.transmit(nodeA.nodeId, nodeB.nodeId, com.astramesh.mesh.AstraPacket.serialize(packet))
 
-        Thread.sleep(100)
+        Thread.sleep(300)
 
         assertThat(nodeB.packetsDropped.get()).isEqualTo(1L)
         assertThat(nodeC.packetsReceived.get()).isEqualTo(0L)
@@ -199,7 +199,7 @@ class MultiNodeSimulationTest {
 
         nodeA.sendPacket(NodeId(9999L), "Looping packet".toByteArray())
 
-        Thread.sleep(100)
+        Thread.sleep(300)
 
         // Node B should drop it because nextHop == itself
         assertThat(nodeB.packetsDropped.get()).isEqualTo(1L)

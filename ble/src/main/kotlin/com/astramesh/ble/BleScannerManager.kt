@@ -7,6 +7,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.ParcelUuid
 import com.astramesh.common.AstraLog
 import com.astramesh.common.AstraResult
@@ -28,10 +32,29 @@ data class DiscoveredBlePeer(
  * Manages Central BLE Scanning with hardware scan filters and adaptive duty cycles.
  */
 @SuppressLint("MissingPermission")
-class BleScannerManager {
+class BleScannerManager(private val context: Context) {
 
     private var scanner: BluetoothLeScanner? = null
     private var isScanning = false
+    private var isReceiverRegistered = false
+    private var currentPowerMode: BlePowerMode = BlePowerMode.BALANCED
+
+    private val btStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                if (state == BluetoothAdapter.STATE_ON) {
+                    if (!isScanning) {
+                        AstraLog.i("BleScannerManager", "Bluetooth turned ON. Restarting BLE discovery.")
+                        startScanning(currentPowerMode)
+                    }
+                } else if (state == BluetoothAdapter.STATE_OFF || state == BluetoothAdapter.STATE_TURNING_OFF) {
+                    AstraLog.w("BleScannerManager", "Bluetooth turned OFF. Pausing BLE discovery.")
+                    isScanning = false
+                }
+            }
+        }
+    }
 
     private val _discoveredPeers = MutableSharedFlow<DiscoveredBlePeer>(extraBufferCapacity = 64)
     val discoveredPeers: SharedFlow<DiscoveredBlePeer> = _discoveredPeers.asSharedFlow()
@@ -63,6 +86,13 @@ class BleScannerManager {
     }
 
     fun startScanning(powerMode: BlePowerMode = BlePowerMode.BALANCED): AstraResult<Unit> {
+        currentPowerMode = powerMode
+        
+        if (!isReceiverRegistered) {
+            context.registerReceiver(btStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+            isReceiverRegistered = true
+        }
+
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) return AstraResult.Failure("Bluetooth adapter unavailable")
         if (!adapter.isEnabled) return AstraResult.Failure("Bluetooth adapter disabled")
@@ -97,6 +127,13 @@ class BleScannerManager {
     }
 
     fun stopScanning() {
+        if (isReceiverRegistered) {
+            try {
+                context.unregisterReceiver(btStateReceiver)
+            } catch (e: Exception) {}
+            isReceiverRegistered = false
+        }
+        
         if (isScanning) {
             try {
                 scanner?.stopScan(scanCallback)

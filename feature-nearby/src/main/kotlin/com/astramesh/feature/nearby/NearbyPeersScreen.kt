@@ -87,7 +87,7 @@ fun NearbyPeersScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
+                    .weight(1f)
                     .background(AstraSurface),
                 contentAlignment = Alignment.Center
             ) {

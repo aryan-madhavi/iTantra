@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -242,57 +245,70 @@ fun ConversationScreen(
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             // -------------------------------------------------------------
-            // DIRECT VOICE MODE CHIP BAR (Voice PTT / Voice Phone / SOS / Text)
+            // DIRECT VOICE MODE SEGMENTED TOGGLE
             // -------------------------------------------------------------
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AstraSurfaceVariant.copy(alpha = 0.6f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AssistChip(
-                    onClick = { viewModel.setVoiceMode(VoiceMode.PUSH_TO_TALK) },
-                    label = { Text("Voice (PTT)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan.copy(alpha = 0.25f) else Color.Transparent,
-                        labelColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan else AstraTextSecondary,
-                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan else AstraTextSecondary
+                // Toggle Switch for Walkie/Phone
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val isPhone = isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS
+                    Text("PTT", color = if (!isPhone) AstraCyan else AstraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isPhone,
+                        onCheckedChange = { checked ->
+                            viewModel.setVoiceMode(if (checked) VoiceMode.CONTINUOUS else VoiceMode.PUSH_TO_TALK)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AstraEmerald,
+                            checkedTrackColor = AstraEmerald.copy(alpha = 0.3f),
+                            uncheckedThumbColor = AstraCyan,
+                            uncheckedTrackColor = AstraCyan.copy(alpha = 0.3f)
+                        )
                     )
-                )
-                AssistChip(
-                    onClick = { viewModel.setVoiceMode(if (currentVoiceMode == VoiceMode.CONTINUOUS) VoiceMode.PUSH_TO_TALK else VoiceMode.CONTINUOUS) },
-                    label = { Text(if (isContinuousModeActive) "Phone (Live)" else "Voice (Phone)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
-                        labelColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald else AstraTextSecondary,
-                        leadingIconContentColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald else AstraTextSecondary
-                    )
-                )
-                AssistChip(
-                    onClick = { viewModel.setVoiceMode(VoiceMode.EMERGENCY) },
-                    label = { Text("SOS", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson.copy(alpha = 0.25f) else Color.Transparent,
-                        labelColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson else AstraTextSecondary,
-                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.EMERGENCY) AstraCrimson else AstraTextSecondary
-                    )
-                )
-                AssistChip(
-                    onClick = { showTextInputDrawer = !showTextInputDrawer },
-                    label = { Text(if (showTextInputDrawer) "Hide" else "Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (showTextInputDrawer) AstraSurface else Color.Transparent,
-                        labelColor = AstraTextSecondary,
-                        leadingIconContentColor = AstraTextSecondary
-                    )
-                )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Phone", color = if (isPhone) AstraEmerald else AstraTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // SOS Button
+                    val isSos = currentVoiceMode == VoiceMode.EMERGENCY
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSos) AstraCrimson.copy(alpha = 0.25f) else AstraSurfaceVariant.copy(alpha = 0.6f))
+                            .clickable { viewModel.setVoiceMode(VoiceMode.EMERGENCY) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Emergency, contentDescription = null, modifier = Modifier.size(13.dp), tint = if (isSos) AstraCrimson else AstraTextSecondary)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("SOS", color = if (isSos) AstraCrimson else AstraTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Text Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (showTextInputDrawer) AstraSurface else AstraSurfaceVariant.copy(alpha = 0.6f))
+                            .clickable { showTextInputDrawer = !showTextInputDrawer }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(13.dp), tint = AstraTextSecondary)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (showTextInputDrawer) "Hide" else "Text", color = AstraTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

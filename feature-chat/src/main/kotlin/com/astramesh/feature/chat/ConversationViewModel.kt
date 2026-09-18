@@ -47,36 +47,7 @@ class ConversationViewModel(
 
     val recipientDisplayName = MutableStateFlow<String?>(null)
 
-    init {
-        viewModelScope.launch {
-            peerRepository?.observeNearbyPeers()?.collect { peers ->
-                val peer = peers.find { it.nodeId == recipientId }
-                val name = peer?.displayName
-                if (name != null && !name.startsWith("Node-")) {
-                    recipientDisplayName.value = name
-                } else if (name != null && recipientDisplayName.value == null) {
-                    recipientDisplayName.value = name
-                }
-            }
-        }
-        viewModelScope.launch {
-            var lastHandledTimestamp = System.currentTimeMillis()
-            messages.collect { messageList ->
-                if (messageList.isEmpty()) return@collect
-                val latest = messageList.last()
-                if (latest.timestamp > lastHandledTimestamp && latest.senderId == recipientId) {
-                    lastHandledTimestamp = latest.timestamp
-                    if (latest.content.contains("[CALL_ENDED]") || latest.content.contains("[CALL_DECLINED]")) {
-                        if (_isContinuousModeActive.value) {
-                            toggleContinuousMode()
-                        }
-                    } else if (_isContinuousModeActive.value && (latest.content.contains("[Voice Note") || !latest.content.startsWith("["))) {
-                        playVoiceMessage(latest.content)
-                    }
-                }
-            }
-        }
-    }
+
 
     val messages: StateFlow<List<Message>> = messageRepository.observeMessages(chatId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -118,6 +89,37 @@ class ConversationViewModel(
 
     private val _speechLanguage = MutableStateFlow(voiceEngineManager?.preferredLanguage ?: com.astramesh.core.Language.HINDI)
     val speechLanguage: StateFlow<com.astramesh.core.Language> = _speechLanguage.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            peerRepository?.observeNearbyPeers()?.collect { peers ->
+                val peer = peers.find { it.nodeId == recipientId }
+                val name = peer?.displayName
+                if (name != null && !name.startsWith("Node-")) {
+                    recipientDisplayName.value = name
+                } else if (name != null && recipientDisplayName.value == null) {
+                    recipientDisplayName.value = name
+                }
+            }
+        }
+        viewModelScope.launch {
+            var lastHandledTimestamp = System.currentTimeMillis()
+            messages.collect { messageList ->
+                if (messageList.isEmpty()) return@collect
+                val latest = messageList.last()
+                if (latest.timestamp > lastHandledTimestamp && latest.senderId == recipientId) {
+                    lastHandledTimestamp = latest.timestamp
+                    if (latest.content.contains("[CALL_ENDED]") || latest.content.contains("[CALL_DECLINED]")) {
+                        if (_isContinuousModeActive.value) {
+                            toggleContinuousMode()
+                        }
+                    } else if (_isContinuousModeActive.value && (latest.content.contains("[Voice Note") || !latest.content.startsWith("["))) {
+                        playVoiceMessage(latest.content)
+                    }
+                }
+            }
+        }
+    }
 
     fun setSpeechLanguage(language: com.astramesh.core.Language) {
         _speechLanguage.value = language
