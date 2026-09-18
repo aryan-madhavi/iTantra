@@ -87,6 +87,12 @@ data class AppStrings(
     val emergencyAlertDesc: String,
     val broadcastAlertNow: String,
     val cancel: String,
+    val holdForSos: String = "Hold for 2s to broadcast SOS and record a 10s voice brief",
+    val holdingForSos: String = "Keep holding for Stage 1 Instant Beacon...",
+    val stage2RecordingTitle: String = "STAGE 2: RECORDING VOICE BRIEFING",
+    val stage2RecordingDesc: String = "Speak your situation, location, and needs.\nAuto-transmitting in %ds...",
+    val twoStageSosActive: String = "TWO-STAGE SOS ACTIVE",
+    val twoStageSosActiveDesc: String = "Stage 1 Beacon and Stage 2 Voice Briefing have been broadcasted across the mesh network with maximum TTL.",
 
     // Transcripts & Diagnostics
     val transcriptsTitle: String,
@@ -160,7 +166,7 @@ data class AppStrings(
             recordingAudio = "RECORDING AUDIO...",
             transmitting = "TRANSMITTING...",
             emergencyAlertTitle = "Emergency Broadcast?",
-            emergencyAlertDesc = "This will send a non-interruptible, maximum volume audio alert to all connected mesh nodes immediately.",
+            emergencyAlertDesc = "Hold for 2s to broadcast SOS and record a 10s voice brief.",
             broadcastAlertNow = "Broadcast Alert Now",
             cancel = "Cancel",
             transcriptsTitle = "TRANSCRIPTS",

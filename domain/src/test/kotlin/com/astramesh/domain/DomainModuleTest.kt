@@ -17,6 +17,7 @@ import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -136,5 +137,31 @@ class DomainModuleTest {
         assertThat(ithantra.messageType).isEqualTo(com.astramesh.core.MessageType.ALERT)
         assertThat(ithantra.text).contains("Building collapsed")
         assertThat(ithantra.hopTtl).isEqualTo(15.toByte())
+    }
+
+    @Test
+    fun `discover peers use case evicts stale peers older than timeout`() = runTest {
+        val peerRepo = mockk<com.astramesh.domain.repository.PeerRepository>()
+        val now = System.currentTimeMillis()
+        val activePeer = com.astramesh.domain.model.Peer(
+            nodeId = NodeId(0x1111L),
+            deviceAddress = "AA:BB:CC:DD:EE:01",
+            displayName = "ActiveNode",
+            lastSeenTimestamp = now - 2000L // 2 seconds ago (active)
+        )
+        val stalePeer = com.astramesh.domain.model.Peer(
+            nodeId = NodeId(0x2222L),
+            deviceAddress = "AA:BB:CC:DD:EE:02",
+            displayName = "StaleNode",
+            lastSeenTimestamp = now - 25000L // 25 seconds ago (stale > 15s)
+        )
+
+        coEvery { peerRepo.observeNearbyPeers() } returns kotlinx.coroutines.flow.flowOf(listOf(activePeer, stalePeer))
+
+        val useCase = com.astramesh.domain.usecase.DiscoverPeersUseCase(peerRepo)
+        val filteredPeers = useCase(timeoutMs = 15000L).first()
+
+        assertThat(filteredPeers.size).isEqualTo(1)
+        assertThat(filteredPeers[0].nodeId).isEqualTo(activePeer.nodeId)
     }
 }

@@ -359,7 +359,20 @@ class EmergencyBroadcastUseCase(
 class DiscoverPeersUseCase(
     private val peerRepository: PeerRepository
 ) {
-    operator fun invoke(): Flow<List<Peer>> = peerRepository.observeNearbyPeers()
+    operator fun invoke(timeoutMs: Long = com.astramesh.core.AstraNetworkConfig.PEER_STALENESS_TIMEOUT_MS): Flow<List<Peer>> {
+        val ticker = kotlinx.coroutines.flow.flow {
+            while (true) {
+                emit(System.currentTimeMillis())
+                kotlinx.coroutines.delay(2500L)
+            }
+        }
+        return kotlinx.coroutines.flow.combine(
+            peerRepository.observeNearbyPeers(),
+            ticker
+        ) { peers, now ->
+            peers.filter { (now - it.lastSeenTimestamp) <= timeoutMs }
+        }
+    }
 }
 
 class VerifyPeerTrustUseCase(

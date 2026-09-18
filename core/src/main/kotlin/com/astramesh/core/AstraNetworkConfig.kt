@@ -35,6 +35,8 @@ object AstraNetworkConfig {
     // Intervals & Timeouts (Milliseconds)
     const val HEARTBEAT_INTERVAL_MS: Long = 5_000L
     const val ROUTE_EXPIRATION_MS: Long = 60_000L
+    // Peer staleness timeout: 15 seconds (aligned with 3x HEARTBEAT_INTERVAL_MS / BLE advertise timeout)
+    const val PEER_STALENESS_TIMEOUT_MS: Long = 15_000L
     const val RECONNECT_BASE_DELAY_MS: Long = 1_000L
     const val RECONNECT_MAX_DELAY_MS: Long = 30_000L
     const val FRAME_REASSEMBLY_TIMEOUT_MS: Long = 10_000L

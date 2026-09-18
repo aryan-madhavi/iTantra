@@ -4,13 +4,17 @@ import java.nio.ByteBuffer
 
 enum class VoiceMode(val value: Byte) {
     PUSH_TO_TALK(0x1),
-    WALKIE_TALKIE(0x2),
     EMERGENCY(0x3),
     CONTINUOUS(0x4);
 
     companion object {
         fun fromValue(value: Byte): VoiceMode {
-            return entries.firstOrNull { it.value == value } ?: PUSH_TO_TALK
+            return when (value) {
+                0x1.toByte(), 0x2.toByte() -> PUSH_TO_TALK
+                0x3.toByte() -> EMERGENCY
+                0x4.toByte() -> CONTINUOUS
+                else -> PUSH_TO_TALK
+            }
         }
     }
 }

@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -54,6 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +80,7 @@ import com.astramesh.core.ChatId
 import com.astramesh.core.CommunicationMode
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
+import com.astramesh.core.TranslationSettings
 import com.astramesh.domain.model.Message
 import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.model.MessageStatus
@@ -86,9 +90,12 @@ import com.astramesh.domain.repository.IdentityRepository
 import com.astramesh.domain.repository.MeshRepository
 import com.astramesh.domain.repository.MessageRepository
 import com.astramesh.domain.repository.PeerRepository
+import com.astramesh.domain.usecase.EmergencyBroadcastUseCase
 import com.astramesh.domain.usecase.SendMessageUseCase
 import com.astramesh.services.VoiceEngineManager
 import com.astramesh.ui.components.PulsingStatusDot
+import com.astramesh.ui.components.TacticalMessageLogItem
+import com.astramesh.ui.components.TacticalTranslationToggle
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -116,6 +123,11 @@ enum class PttState {
     RECEIVING
 }
 
+enum class DirectCommsMode {
+    WALKIE_TALKIE,
+    PHONE
+}
+
 @Composable
 fun HomeScreen(
     localNodeId: NodeId,
@@ -124,19 +136,24 @@ fun HomeScreen(
     chatRepository: ChatRepository,
     identityRepository: IdentityRepository,
     sendMessageUseCase: SendMessageUseCase,
+    emergencyBroadcastUseCase: EmergencyBroadcastUseCase,
     meshRepository: MeshRepository? = null,
     voiceEngineManager: VoiceEngineManager?,
+    discoverPeersUseCase: com.astramesh.domain.usecase.DiscoverPeersUseCase = remember(peerRepository) { com.astramesh.domain.usecase.DiscoverPeersUseCase(peerRepository) },
     onNavigateToContacts: () -> Unit,
     onNavigateToEmergency: () -> Unit,
     onOpenConversation: (chatId: String, recipientId: Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val nearbyPeers by peerRepository.observeNearbyPeers().collectAsState(initial = emptyList())
+    val nearbyPeers by discoverPeersUseCase().collectAsState(initial = emptyList())
     val meshStatus by (meshRepository?.meshStatus ?: kotlinx.coroutines.flow.MutableStateFlow(com.astramesh.domain.model.MeshStatus())).collectAsState()
+    val isTranslationEnabled by TranslationSettings.isTranslationEnabled.collectAsState()
 
     // Active Communication Mode: Default is BROADCAST
     var communicationMode by remember { mutableStateOf(CommunicationMode.BROADCAST) }
     var selectedDirectPeer by remember { mutableStateOf<Peer?>(null) }
+    var directCommsMode by remember { mutableStateOf(DirectCommsMode.WALKIE_TALKIE) }
+    var isDirectPhoneCallActive by remember { mutableStateOf(false) }
 
     // Selected language for speech input / output
     var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
@@ -169,6 +186,27 @@ fun HomeScreen(
 
     val messages by messageRepository.observeMessages(activeChatId).collectAsState(initial = emptyList())
 
+    LaunchedEffect(activeChatId, isDirectPhoneCallActive) {
+        var lastMsgTimestamp = System.currentTimeMillis()
+        if (isDirectPhoneCallActive) {
+            messageRepository.observeMessages(activeChatId).collect { msgList ->
+                if (msgList.isEmpty()) return@collect
+                val lastMsg = msgList.last()
+                if (lastMsg.senderId != localNodeId && lastMsg.timestamp > lastMsgTimestamp) {
+                    lastMsgTimestamp = lastMsg.timestamp
+                    if (lastMsg.content.contains("[CALL_ENDED]") || lastMsg.content.contains("[CALL_DECLINED]")) {
+                        isDirectPhoneCallActive = false
+                        voiceEngineManager?.stopStt()
+                        com.astramesh.domain.model.CallSessionManager.endCall()
+                    } else if (lastMsg.content.contains("[Voice Note") || !lastMsg.content.startsWith("[")) {
+                        val cleanText = lastMsg.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
+                        voiceEngineManager?.speakText(cleanText, selectedLanguage)
+                    }
+                }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -198,7 +236,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "iTANTRA TRANSCEIVER",
+                        text = "TRANSCEIVER",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
                         color = AstraTextPrimary,
@@ -223,34 +261,44 @@ fun HomeScreen(
                 )
             }
 
-            // Language Selector Chip & Dropdown
-            Box {
-                AssistChip(
-                    onClick = { languageDropdownExpanded = true },
-                    label = { Text(selectedLanguage.nativeName, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = AstraSurfaceVariant,
-                        labelColor = AstraCyan,
-                        leadingIconContentColor = AstraCyan
-                    )
+            // Language Selector Chip & Dropdown and Global Translation Toggle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TacticalTranslationToggle(
+                    isEnabled = isTranslationEnabled,
+                    onToggle = { TranslationSettings.toggleTranslation() }
                 )
 
-                DropdownMenu(
-                    expanded = languageDropdownExpanded,
-                    onDismissRequest = { languageDropdownExpanded = false }
-                ) {
-                    Language.entries.forEach { lang ->
-                        DropdownMenuItem(
-                            text = { Text("${lang.nativeName} (${lang.englishName})") },
-                            onClick = {
-                                selectedLanguage = lang
-                                languageDropdownExpanded = false
-                                voiceEngineManager?.preferredLanguage = lang
-                                meshRepository?.setPreferredLanguage(lang)
-                                AstraLog.d("HomeScreen", "Language changed to ${lang.englishName}")
-                            }
+                Box {
+                    AssistChip(
+                        onClick = { languageDropdownExpanded = true },
+                        label = { Text(selectedLanguage.nativeName, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                        leadingIcon = { Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = AstraSurfaceVariant,
+                            labelColor = AstraCyan,
+                            leadingIconContentColor = AstraCyan
                         )
+                    )
+
+                    DropdownMenu(
+                        expanded = languageDropdownExpanded,
+                        onDismissRequest = { languageDropdownExpanded = false }
+                    ) {
+                        Language.entries.forEach { lang ->
+                            DropdownMenuItem(
+                                text = { Text("${lang.nativeName} (${lang.englishName})") },
+                                onClick = {
+                                    selectedLanguage = lang
+                                    languageDropdownExpanded = false
+                                    voiceEngineManager?.preferredLanguage = lang
+                                    meshRepository?.setPreferredLanguage(lang)
+                                    AstraLog.d("HomeScreen", "Language changed to ${lang.englishName}")
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -385,7 +433,7 @@ fun HomeScreen(
                                 CommunicationMode.DIRECT -> {
                                     if (activeRecipientId.isBroadcast) "Select a peer node below for P2P link" else "P2P Node ${activeRecipientId.toHex().take(8)} • Direct Route"
                                 }
-                                CommunicationMode.EMERGENCY -> "High-Priority Mesh Flood (TTL 15) • Overrides DND"
+                                CommunicationMode.EMERGENCY -> "Hold for 2s to broadcast SOS and record a 10s voice brief"
                             }
                             Text(
                                 text = title,
@@ -423,6 +471,60 @@ fun HomeScreen(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = AstraCrimson)
                         ) {
                             Text("SOS Panel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // If in DIRECT mode, show the Walkie-Talkie vs Phone Mode toggle
+                if (communicationMode == CommunicationMode.DIRECT) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(AstraSurfaceVariant.copy(alpha = 0.5f))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (directCommsMode == DirectCommsMode.WALKIE_TALKIE) AstraCyan.copy(alpha = 0.25f) else Color.Transparent)
+                                .border(1.dp, if (directCommsMode == DirectCommsMode.WALKIE_TALKIE) AstraCyan else Color.Transparent, RoundedCornerShape(6.dp))
+                                .clickable {
+                                    if (isDirectPhoneCallActive) {
+                                        isDirectPhoneCallActive = false
+                                        voiceEngineManager?.stopStt()
+                                        com.astramesh.domain.model.CallSessionManager.endCall()
+                                    }
+                                    directCommsMode = DirectCommsMode.WALKIE_TALKIE
+                                }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (directCommsMode == DirectCommsMode.WALKIE_TALKIE) AstraCyan else AstraTextSecondary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Walkie-Talkie (PTT)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (directCommsMode == DirectCommsMode.WALKIE_TALKIE) AstraCyan else AstraTextSecondary)
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (directCommsMode == DirectCommsMode.PHONE) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent)
+                                .border(1.dp, if (directCommsMode == DirectCommsMode.PHONE) AstraEmerald else Color.Transparent, RoundedCornerShape(6.dp))
+                                .clickable { directCommsMode = DirectCommsMode.PHONE }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (directCommsMode == DirectCommsMode.PHONE) AstraEmerald else AstraTextSecondary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (isDirectPhoneCallActive) "Phone (Active)" else "Phone (Continuous)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (directCommsMode == DirectCommsMode.PHONE) AstraEmerald else AstraTextSecondary)
+                            }
                         }
                     }
                 }
@@ -468,7 +570,9 @@ fun HomeScreen(
                                         text = peer.displayName ?: "Node-${peer.nodeId.toHex().take(6)}",
                                         fontSize = 11.sp,
                                         fontWeight = if (isPeerSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isPeerSelected) AstraCyan else AstraTextPrimary
+                                        color = if (isPeerSelected) AstraCyan else AstraTextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
@@ -507,186 +611,277 @@ fun HomeScreen(
                 label = "scale"
             )
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                // Waveform & Realtime Audio VU-Meter during speech
-                if (pttState == PttState.RECORDING) {
-                    TacticalWaveform(rms = liveRms)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "TRANSMITTING: 00:%02d".format(recordingDurationSec),
-                        color = if (communicationMode == CommunicationMode.EMERGENCY) AstraCrimson else AstraCyan,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
-                    )
-                    if (liveTranscript.isNotBlank()) {
+            if (communicationMode == CommunicationMode.EMERGENCY) {
+                EmergencySosActionArea(
+                    emergencyBroadcastUseCase = emergencyBroadcastUseCase,
+                    voiceEngineManager = voiceEngineManager,
+                    selectedLanguage = selectedLanguage,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // Waveform & Realtime Audio VU-Meter during speech
+                    if (pttState == PttState.RECORDING) {
+                        TacticalWaveform(rms = liveRms)
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "\"$liveTranscript\"",
-                            color = AstraTextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 20.dp),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                } else if (pttState == PttState.TRANSMITTING) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Sync, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "ENCODING & DISPATCHING TO MESH...",
+                            text = "TRANSMITTING: 00:%02d".format(recordingDurationSec),
                             color = AstraCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
                         )
+                        if (liveTranscript.isNotBlank()) {
+                            Text(
+                                text = "\"$liveTranscript\"",
+                                color = AstraTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    } else if (pttState == PttState.TRANSMITTING) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Sync, contentDescription = null, tint = AstraCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "ENCODING & DISPATCHING TO MESH...",
+                                color = AstraCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
 
-                // Push To Talk Circular Touch Target
-                val buttonBrush = when {
-                    pttState == PttState.RECORDING && communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraCrimson.copy(alpha = 0.6f)))
-                    pttState == PttState.RECORDING -> Brush.radialGradient(listOf(AstraCyan, AstraEmerald))
-                    communicationMode == CommunicationMode.EMERGENCY -> Brush.radialGradient(listOf(AstraCrimson, AstraSurfaceVariant))
-                    communicationMode == CommunicationMode.DIRECT -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
-                    else -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
-                }
+                    if (communicationMode == CommunicationMode.DIRECT && directCommsMode == DirectCommsMode.PHONE) {
+                        val phoneBrush = if (isDirectPhoneCallActive) {
+                            Brush.radialGradient(listOf(AstraCrimson, AstraSurfaceVariant))
+                        } else {
+                            Brush.radialGradient(listOf(AstraEmerald, AstraSurfaceVariant))
+                        }
 
-                Box(
-                    modifier = Modifier
-                        .size(175.dp)
-                        .scale(pulseScale)
-                        .clip(CircleShape)
-                        .background(buttonBrush)
-                        .pointerInput(communicationMode, selectedDirectPeer, selectedLanguage) {
-                            detectTapGestures(
-                                onPress = {
-                                    pttState = PttState.RECORDING
-                                    recordingDurationSec = 0
-                                    liveRms = 0
-                                    liveTranscript = ""
-                                    recordedAudioBuffer.reset()
+                        Box(
+                            modifier = Modifier
+                                .size(175.dp)
+                                .scale(if (isDirectPhoneCallActive) pulseScale else 1.0f)
+                                .clip(CircleShape)
+                                .background(phoneBrush)
+                                .clickable {
+                                    if (!isDirectPhoneCallActive) {
+                                        isDirectPhoneCallActive = true
+                                        liveTranscript = ""
+                                        com.astramesh.domain.model.CallSessionManager.acceptCall(activeRecipientId)
 
-                                    timerJob?.cancel()
-                                    timerJob = scope.launch {
-                                        while (isActive && pttState == PttState.RECORDING) {
-                                            delay(1000)
-                                            recordingDurationSec += 1
-                                        }
-                                    }
-
-                                    AstraLog.d("HomeScreen", "PTT_START initiated mode=${communicationMode.name} lang=${selectedLanguage.name}")
-                                    voiceEngineManager?.startStt(
-                                        language = selectedLanguage,
-                                        onRmsChanged = { rms -> liveRms = rms }
-                                    ) { transcript ->
-                                        if (transcript.isNotBlank()) {
-                                            liveTranscript = transcript
-                                        }
-                                    }
-
-                                    tryAwaitRelease()
-
-                                    // RELEASE TO SEND
-                                    pttState = PttState.TRANSMITTING
-                                    liveRms = 0
-                                    val duration = recordingDurationSec
-                                    timerJob?.cancel()
-                                    timerJob = null
-
-                                    scope.launch {
-                                        val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
-
-                                        var rawTranscript = if (recognizedText.isNotBlank()) {
-                                            recognizedText
-                                        } else if (liveTranscript.isNotBlank()) {
-                                            liveTranscript
-                                        } else if (duration > 0) {
-                                            if (communicationMode == CommunicationMode.EMERGENCY) {
-                                                selectedLanguage.getDefaultEmergencyText()
-                                            } else {
-                                                selectedLanguage.getDefaultVoiceNoteText()
-                                            }
-                                        } else {
-                                            ""
-                                        }
-
-                                        if (rawTranscript.isNotBlank() && selectedLanguage == com.astramesh.core.Language.ENGLISH && rawTranscript.any { it in 'ऀ'..'ॿ' }) {
-                                            val translatedEng = voiceEngineManager?.translateText(rawTranscript, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
-                                            if (translatedEng.isNotBlank()) {
-                                                rawTranscript = translatedEng
-                                            }
-                                        }
-                                        val transcriptToSend = rawTranscript
-
-                                        if (transcriptToSend.isNotBlank()) {
-                                            AstraLog.d("HomeScreen", "PTT_SEND mode=${communicationMode.name} text='$transcriptToSend' lang=${selectedLanguage.name}")
+                                        scope.launch {
                                             sendMessageUseCase.sendVoiceMessageByMode(
-                                                mode = communicationMode,
-                                                directRecipientId = if (communicationMode == CommunicationMode.DIRECT) activeRecipientId else null,
-                                                text = transcriptToSend,
+                                                mode = CommunicationMode.DIRECT,
+                                                directRecipientId = activeRecipientId,
+                                                text = "[CALL_INVITE]: Phone call initiated",
                                                 language = selectedLanguage
                                             )
                                         }
-                                        delay(300)
-                                        pttState = PttState.IDLE
-                                    }
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val icon = when (communicationMode) {
-                            CommunicationMode.EMERGENCY -> Icons.Default.Emergency
-                            CommunicationMode.BROADCAST -> Icons.Default.Mic
-                            CommunicationMode.DIRECT -> Icons.Default.Mic
-                        }
-                        Icon(
-                            icon,
-                            contentDescription = "PTT",
-                            tint = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
-                            modifier = Modifier.size(46.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        val mainLabel = when {
-                            pttState == PttState.RECORDING -> "RELEASE TO TRANSMIT"
-                            communicationMode == CommunicationMode.BROADCAST -> "HOLD TO BROADCAST"
-                            communicationMode == CommunicationMode.DIRECT -> "HOLD TO TALK DIRECT"
-                            communicationMode == CommunicationMode.EMERGENCY -> "HOLD FOR SOS"
-                            else -> "HOLD TO TALK"
-                        }
-                        Text(
-                            text = mainLabel,
-                            color = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = selectedLanguage.nativeName,
-                            color = if (pttState == PttState.RECORDING) Color.White.copy(alpha = 0.85f) else AstraCyan,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
-                val footerText = when (communicationMode) {
-                    CommunicationMode.BROADCAST -> "Auto-relayed & translated on all reachable devices"
-                    CommunicationMode.DIRECT -> "Direct end-to-end P2P mesh voice transmission"
-                    CommunicationMode.EMERGENCY -> "High-priority emergency broadcast override"
+                                        voiceEngineManager?.startStt(
+                                            language = selectedLanguage,
+                                            onRmsChanged = { rms -> liveRms = rms },
+                                            onPartialResult = { partial ->
+                                                if (partial.isNotBlank()) liveTranscript = partial
+                                            },
+                                            onFinalResult = { finalSentence ->
+                                                if (finalSentence.isNotBlank() && isDirectPhoneCallActive) {
+                                                    liveTranscript = finalSentence
+                                                    scope.launch {
+                                                        sendMessageUseCase.sendVoiceMessageByMode(
+                                                            mode = CommunicationMode.DIRECT,
+                                                            directRecipientId = activeRecipientId,
+                                                            text = finalSentence,
+                                                            language = selectedLanguage
+                                                        )
+                                                        delay(1200)
+                                                        if (isDirectPhoneCallActive) {
+                                                            liveTranscript = ""
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    } else {
+                                        isDirectPhoneCallActive = false
+                                        liveRms = 0
+                                        liveTranscript = ""
+                                        com.astramesh.domain.model.CallSessionManager.endCall()
+                                        scope.launch {
+                                            sendMessageUseCase.sendVoiceMessageByMode(
+                                                mode = CommunicationMode.DIRECT,
+                                                directRecipientId = activeRecipientId,
+                                                text = "[CALL_ENDED]: Phone call ended",
+                                                language = selectedLanguage
+                                            )
+                                        }
+                                        voiceEngineManager?.stopStt()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    if (isDirectPhoneCallActive) Icons.Default.CallEnd else Icons.Default.Phone,
+                                    contentDescription = "Phone Call",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(46.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (isDirectPhoneCallActive) "TAP TO HANG UP" else "START PHONE CALL",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = if (isDirectPhoneCallActive) "CALL ACTIVE (LIVE)" else selectedLanguage.nativeName,
+                                    color = if (isDirectPhoneCallActive) Color.White.copy(alpha = 0.85f) else AstraEmerald,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else {
+                        // Push To Talk Circular Touch Target
+                        val buttonBrush = when {
+                            pttState == PttState.RECORDING -> Brush.radialGradient(listOf(AstraCyan, AstraEmerald))
+                            communicationMode == CommunicationMode.DIRECT -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
+                            else -> Brush.radialGradient(listOf(AstraCyan, AstraSurfaceVariant))
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(175.dp)
+                                .scale(pulseScale)
+                                .clip(CircleShape)
+                                .background(buttonBrush)
+                                .pointerInput(communicationMode, selectedDirectPeer, selectedLanguage) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            pttState = PttState.RECORDING
+                                            recordingDurationSec = 0
+                                            liveRms = 0
+                                            liveTranscript = ""
+                                            recordedAudioBuffer.reset()
+
+                                            timerJob?.cancel()
+                                            timerJob = scope.launch {
+                                                while (isActive && pttState == PttState.RECORDING) {
+                                                    delay(1000)
+                                                    recordingDurationSec += 1
+                                                }
+                                            }
+
+                                            AstraLog.d("HomeScreen", "PTT_START initiated mode=${communicationMode.name} lang=${selectedLanguage.name}")
+                                            voiceEngineManager?.startStt(
+                                                language = selectedLanguage,
+                                                onRmsChanged = { rms -> liveRms = rms }
+                                            ) { transcript ->
+                                                if (transcript.isNotBlank()) {
+                                                    liveTranscript = transcript
+                                                }
+                                            }
+
+                                            tryAwaitRelease()
+
+                                            // RELEASE TO SEND
+                                            pttState = PttState.TRANSMITTING
+                                            liveRms = 0
+                                            val duration = recordingDurationSec
+                                            timerJob?.cancel()
+                                            timerJob = null
+
+                                            scope.launch {
+                                                val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
+
+                                                var rawTranscript = if (recognizedText.isNotBlank()) {
+                                                    recognizedText
+                                                } else if (liveTranscript.isNotBlank()) {
+                                                    liveTranscript
+                                                } else if (duration > 0) {
+                                                    selectedLanguage.getDefaultVoiceNoteText()
+                                                } else {
+                                                    ""
+                                                }
+
+                                                if (rawTranscript.isNotBlank() && selectedLanguage == com.astramesh.core.Language.ENGLISH && rawTranscript.any { it in 'ऀ'..'ॿ' }) {
+                                                    val translatedEng = voiceEngineManager?.translateText(rawTranscript, com.astramesh.core.Language.HINDI, com.astramesh.core.Language.ENGLISH) ?: ""
+                                                    if (translatedEng.isNotBlank()) {
+                                                        rawTranscript = translatedEng
+                                                    }
+                                                }
+                                                val transcriptToSend = rawTranscript
+
+                                                if (transcriptToSend.isNotBlank()) {
+                                                    AstraLog.d("HomeScreen", "PTT_SEND mode=${communicationMode.name} text='$transcriptToSend' lang=${selectedLanguage.name}")
+                                                    sendMessageUseCase.sendVoiceMessageByMode(
+                                                        mode = communicationMode,
+                                                        directRecipientId = if (communicationMode == CommunicationMode.DIRECT) activeRecipientId else null,
+                                                        text = transcriptToSend,
+                                                        language = selectedLanguage
+                                                    )
+                                                }
+                                                delay(300)
+                                                pttState = PttState.IDLE
+                                            }
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = "PTT",
+                                    tint = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
+                                    modifier = Modifier.size(46.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val mainLabel = when {
+                                    pttState == PttState.RECORDING -> "RELEASE TO TRANSMIT"
+                                    communicationMode == CommunicationMode.BROADCAST -> "HOLD TO BROADCAST"
+                                    communicationMode == CommunicationMode.DIRECT -> "HOLD TO TALK DIRECT"
+                                    else -> "HOLD TO TALK"
+                                }
+                                Text(
+                                    text = mainLabel,
+                                    color = if (pttState == PttState.RECORDING) Color.White else AstraTextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = selectedLanguage.nativeName,
+                                    color = if (pttState == PttState.RECORDING) Color.White.copy(alpha = 0.85f) else AstraCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val footerText = when (communicationMode) {
+                        CommunicationMode.BROADCAST -> "Auto-relayed & translated on all reachable devices"
+                        CommunicationMode.DIRECT -> "Direct end-to-end P2P mesh voice transmission"
+                        else -> ""
+                    }
+                    Text(
+                        text = footerText,
+                        color = AstraTextSecondary,
+                        fontSize = 11.sp
+                    )
                 }
-                Text(
-                    text = footerText,
-                    color = AstraTextSecondary,
-                    fontSize = 11.sp
-                )
             }
         }
 
@@ -786,6 +981,7 @@ fun HomeScreen(
                             TacticalMessageLogItem(
                                 message = msg,
                                 localNodeId = localNodeId,
+                                localLanguage = selectedLanguage,
                                 onReplay = {
                                     val cleanText = msg.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
                                     voiceEngineManager?.speakText(
@@ -803,99 +999,7 @@ fun HomeScreen(
     }
 }
 
-@Composable
-fun TacticalMessageLogItem(
-    message: Message,
-    localNodeId: NodeId,
-    onReplay: () -> Unit
-) {
-    val isFromMe = message.senderId == localNodeId
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (isFromMe) AstraCyan.copy(alpha = 0.1f) else AstraSurfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            IconButton(
-                onClick = onReplay,
-                modifier = Modifier.size(26.dp)
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = if (message.priority == MessagePriority.EMERGENCY) AstraCrimson else AstraCyan,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val directionTag = if (isFromMe) "TX" else "RX"
-                    val tagColor = if (isFromMe) AstraCyan else AstraEmerald
-                    Text(
-                        text = "[$directionTag]",
-                        color = tagColor,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = message.content,
-                        color = AstraTextPrimary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                val hopText = if (message.hopCount == 0) "Direct Link" else "${message.hopCount} Hops Relayed"
-                val subtitle = if (isFromMe) "Outgoing • $hopText" else "Node ${message.senderId.toHex().take(8)} • $hopText"
-                Text(
-                    text = subtitle,
-                    color = AstraTextSecondary,
-                    fontSize = 9.sp
-                )
-            }
-        }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-            Text(
-                text = timeFormat.format(Date(message.timestamp)),
-                color = AstraTextSecondary,
-                fontSize = 10.sp
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            if (isFromMe) {
-                when (message.status) {
-                    MessageStatus.QUEUED, MessageStatus.TRANSMITTING -> {
-                        Text("...", color = AstraAmber, fontSize = 9.sp)
-                    }
-                    MessageStatus.SENT -> {
-                        Icon(Icons.Default.Check, contentDescription = "Sent", tint = AstraTextSecondary, modifier = Modifier.size(11.dp))
-                    }
-                    MessageStatus.RELAYED -> {
-                        Icon(Icons.Default.Sync, contentDescription = "Relayed", tint = AstraCyan, modifier = Modifier.size(11.dp))
-                    }
-                    MessageStatus.DELIVERED, MessageStatus.READ -> {
-                        Icon(Icons.Default.DoneAll, contentDescription = "Delivered", tint = AstraEmerald, modifier = Modifier.size(12.dp))
-                    }
-                    MessageStatus.FAILED -> {
-                        Text("!", color = AstraCrimson, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun TacticalWaveform(rms: Int) {

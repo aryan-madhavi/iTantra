@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -60,12 +62,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.common.AstraLog
 import com.astramesh.core.NodeId
 import com.astramesh.domain.model.Peer
 import com.astramesh.domain.repository.PeerRepository
+import com.astramesh.domain.usecase.DiscoverPeersUseCase
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -84,10 +88,11 @@ import kotlin.math.sin
 fun ContactsScreen(
     localNodeId: NodeId = NodeId(0L),
     peerRepository: PeerRepository,
+    discoverPeersUseCase: DiscoverPeersUseCase = remember(peerRepository) { DiscoverPeersUseCase(peerRepository) },
     onOpenConversation: (chatId: String, recipientId: Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val peers by peerRepository.observeNearbyPeers().collectAsState(initial = emptyList())
+    val peers by discoverPeersUseCase().collectAsState(initial = emptyList())
 
     var searchQuery by remember { mutableStateOf("") }
     var isRadarVisible by remember { mutableStateOf(true) }
@@ -175,7 +180,7 @@ fun ContactsScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "iTANTRA MESH NODES",
+                        text = "MESH NODES",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
                         color = AstraTextPrimary,
@@ -403,13 +408,16 @@ fun TacticalPeerCard(
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = displayName,
                             color = AstraTextPrimary,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Box(
@@ -420,15 +428,22 @@ fun TacticalPeerCard(
                         )
                     }
                     Text(
-                        text = "ID: ${peer.nodeId.toHex().take(8)} • ${peer.rssi} dBm • Direct Hop",
+                        text = "ID: ${peer.nodeId.toHex()} • ${peer.rssi} dBm • Direct Hop",
                         color = AstraTextSecondary,
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.wrapContentWidth()
+            ) {
                 IconButton(
                     onClick = onEditName,
                     modifier = Modifier.size(32.dp)
@@ -444,11 +459,12 @@ fun TacticalPeerCard(
                 Button(
                     onClick = onOpenChat,
                     colors = ButtonDefaults.buttonColors(containerColor = AstraCyan),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.widthIn(min = 105.dp)
                 ) {
                     Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Talk Direct", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text("Talk Direct", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 }
             }
         }

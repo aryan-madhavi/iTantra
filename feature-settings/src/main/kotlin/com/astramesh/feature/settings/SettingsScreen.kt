@@ -112,7 +112,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "iTANTRA SETTINGS",
+                        text = "SETTINGS",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
                         color = AstraTextPrimary,

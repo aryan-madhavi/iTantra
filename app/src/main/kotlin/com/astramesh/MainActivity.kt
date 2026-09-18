@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -214,6 +215,25 @@ fun MainAppScaffold(
 
     val isConversationScreen = currentRoute?.startsWith("conversation") == true
 
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val incomingCall by com.astramesh.domain.model.CallSessionManager.incomingCall.collectAsState(initial = null)
+
+    LaunchedEffect(Unit) {
+        var lastCheckedTime = System.currentTimeMillis() - 5000L
+        chatRepository.observeChats().collect { chats ->
+            for (chat in chats) {
+                val lastMsg = chat.lastMessage ?: continue
+                if (lastMsg.senderId == localNodeId) continue
+                if (lastMsg.timestamp > lastCheckedTime && lastMsg.content.contains("[CALL_INVITE]")) {
+                    lastCheckedTime = lastMsg.timestamp
+                    val peer = peerRepository.getPeerByNodeId(lastMsg.senderId)
+                    val name = peer?.displayName ?: "Node-${lastMsg.senderId.toHex().take(8)}"
+                    com.astramesh.domain.model.CallSessionManager.triggerIncomingCall(lastMsg.senderId, name)
+                }
+            }
+        }
+    }
+
     Scaffold(
         bottomBar = {
             if (!isConversationScreen) {
@@ -314,8 +334,10 @@ fun MainAppScaffold(
                         chatRepository = chatRepository,
                         identityRepository = identityRepository,
                         sendMessageUseCase = sendMessageUseCase,
+                        emergencyBroadcastUseCase = emergencyBroadcastUseCase,
                         meshRepository = meshRepository,
                         voiceEngineManager = voiceEngineManager,
+                        discoverPeersUseCase = discoverPeersUseCase,
                         onNavigateToContacts = { navController.navigate(Screen.Contacts.route) },
                         onNavigateToEmergency = { navController.navigate(Screen.Emergency.route) },
                         onOpenConversation = { chatId, recipientId ->
@@ -328,6 +350,7 @@ fun MainAppScaffold(
                     ContactsScreen(
                         localNodeId = localNodeId,
                         peerRepository = peerRepository,
+                        discoverPeersUseCase = discoverPeersUseCase,
                         onOpenConversation = { chatId, recipientId ->
                             navController.navigate(Screen.Conversation.createRoute(chatId, recipientId))
                         }
@@ -405,6 +428,49 @@ fun MainAppScaffold(
                         onShowQrClicked = {}
                     )
                 }
+            }
+
+            // High-priority Incoming Call Overlay UI
+            val currentCall = incomingCall
+            if (currentCall != null) {
+                com.astramesh.ui.components.IncomingCallDialog(
+                    callerNodeId = currentCall.callerNodeId,
+                    callerDisplayName = currentCall.callerDisplayName,
+                    onAccept = {
+                        com.astramesh.domain.model.CallSessionManager.acceptCall(currentCall.callerNodeId)
+                        scope.launch {
+                            sendMessageUseCase(
+                                chatId = ChatId("direct_${currentCall.callerNodeId.value}"),
+                                recipientId = currentCall.callerNodeId,
+                                content = "[CALL_ACCEPTED]: Call connected",
+                                priority = com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                            )
+                        }
+                        navController.navigate(Screen.Conversation.createRoute("direct_${currentCall.callerNodeId.value}", currentCall.callerNodeId.value))
+                    },
+                    onDecline = {
+                        com.astramesh.domain.model.CallSessionManager.declineCall(currentCall.callerNodeId)
+                        scope.launch {
+                            sendMessageUseCase(
+                                chatId = ChatId("direct_${currentCall.callerNodeId.value}"),
+                                recipientId = currentCall.callerNodeId,
+                                content = "[CALL_DECLINED]: Call declined",
+                                priority = com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                            )
+                        }
+                    },
+                    onTimeout = {
+                        com.astramesh.domain.model.CallSessionManager.declineCall(currentCall.callerNodeId)
+                        scope.launch {
+                            sendMessageUseCase(
+                                chatId = ChatId("direct_${currentCall.callerNodeId.value}"),
+                                recipientId = currentCall.callerNodeId,
+                                content = "[CALL_DECLINED]: No response (timed out)",
+                                priority = com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
+                            )
+                        }
+                    }
+                )
             }
         }
     }

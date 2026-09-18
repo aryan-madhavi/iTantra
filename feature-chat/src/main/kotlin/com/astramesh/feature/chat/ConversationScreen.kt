@@ -76,10 +76,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
+import com.astramesh.core.TranslationSettings
 import com.astramesh.core.VoiceMode
 import com.astramesh.domain.model.Message
 import com.astramesh.domain.model.MessagePriority
 import com.astramesh.domain.model.MessageStatus
+import com.astramesh.ui.components.TacticalMessageLogItem
+import com.astramesh.ui.components.TacticalTranslationToggle
 import com.astramesh.ui.theme.AstraAmber
 import com.astramesh.ui.theme.AstraBackground
 import com.astramesh.ui.theme.AstraCrimson
@@ -112,6 +115,7 @@ fun ConversationScreen(
     val liveTranscript by viewModel.liveTranscript.collectAsState()
     val isReceiverSpeaking by viewModel.isReceiverSpeaking.collectAsState()
     val speechLanguage by viewModel.speechLanguage.collectAsState()
+    val isTranslationEnabled by TranslationSettings.isTranslationEnabled.collectAsState()
 
     var showSosConfirmDialog by remember { mutableStateOf(false) }
     var languageDropdownExpanded by remember { mutableStateOf(false) }
@@ -194,6 +198,11 @@ fun ConversationScreen(
                     }
                 },
                 actions = {
+                    TacticalTranslationToggle(
+                        isEnabled = isTranslationEnabled,
+                        onToggle = { TranslationSettings.toggleTranslation() }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Box {
                         IconButton(onClick = { languageDropdownExpanded = true }) {
                             Icon(Icons.Default.Language, contentDescription = "Speech Language", tint = AstraCyan)
@@ -233,7 +242,7 @@ fun ConversationScreen(
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             // -------------------------------------------------------------
-            // DIRECT VOICE MODE CHIP BAR (PTT / Walkie / Continuous / SOS)
+            // DIRECT VOICE MODE CHIP BAR (Voice PTT / Voice Phone / SOS / Text)
             // -------------------------------------------------------------
             Row(
                 modifier = Modifier
@@ -246,7 +255,7 @@ fun ConversationScreen(
             ) {
                 AssistChip(
                     onClick = { viewModel.setVoiceMode(VoiceMode.PUSH_TO_TALK) },
-                    label = { Text("PTT", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text("Voice (PTT)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(13.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (currentVoiceMode == VoiceMode.PUSH_TO_TALK) AstraCyan.copy(alpha = 0.25f) else Color.Transparent,
@@ -255,18 +264,8 @@ fun ConversationScreen(
                     )
                 )
                 AssistChip(
-                    onClick = { viewModel.setVoiceMode(VoiceMode.WALKIE_TALKIE) },
-                    label = { Text("Walkie", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(13.dp)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
-                        labelColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald else AstraTextSecondary,
-                        leadingIconContentColor = if (currentVoiceMode == VoiceMode.WALKIE_TALKIE) AstraEmerald else AstraTextSecondary
-                    )
-                )
-                AssistChip(
                     onClick = { viewModel.setVoiceMode(if (currentVoiceMode == VoiceMode.CONTINUOUS) VoiceMode.PUSH_TO_TALK else VoiceMode.CONTINUOUS) },
-                    label = { Text(if (isContinuousModeActive) "Phone (Live)" else "Phone", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(if (isContinuousModeActive) "Phone (Live)" else "Voice (Phone)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(13.dp)) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = if (isContinuousModeActive || currentVoiceMode == VoiceMode.CONTINUOUS) AstraEmerald.copy(alpha = 0.25f) else Color.Transparent,
@@ -385,12 +384,11 @@ fun ConversationScreen(
                             reverseLayout = true
                         ) {
                             items(messages.reversed(), key = { it.id.value }) { message ->
-                                val isFromMe = message.senderId == localNodeId
-                                DirectVoiceLogItem(
+                                TacticalMessageLogItem(
                                     message = message,
-                                    isFromMe = isFromMe,
-                                    recipientName = displayName,
-                                    onPlayAudio = { viewModel.playVoiceMessage(message.content) }
+                                    localNodeId = localNodeId,
+                                    localLanguage = speechLanguage,
+                                    onReplay = { viewModel.playVoiceMessage(message.content) }
                                 )
                             }
                         }
@@ -548,11 +546,10 @@ fun DirectPttTransceiverControl(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     val label = when {
-                        isContinuousMode -> "CONTINUOUS MODE ACTIVE (TAP TO STOP)"
+                        isContinuousMode -> "PHONE MODE ACTIVE (TAP TO HANG UP)"
                         isRecording -> "RELEASE TO TRANSMIT DIRECT (${recordingDurationSec}s)"
                         voiceMode == VoiceMode.EMERGENCY -> "HOLD FOR DIRECT SOS VOICE"
-                        voiceMode == VoiceMode.WALKIE_TALKIE -> "HOLD TO TALK (WALKIE)"
-                        else -> "HOLD TO TALK DIRECT"
+                        else -> "HOLD TO TALK (VOICE PTT)"
                     }
                     Text(
                         text = label,

@@ -59,6 +59,23 @@ class ConversationViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            var lastHandledTimestamp = System.currentTimeMillis()
+            messages.collect { messageList ->
+                if (messageList.isEmpty()) return@collect
+                val latest = messageList.last()
+                if (latest.timestamp > lastHandledTimestamp && latest.senderId == recipientId) {
+                    lastHandledTimestamp = latest.timestamp
+                    if (latest.content.contains("[CALL_ENDED]") || latest.content.contains("[CALL_DECLINED]")) {
+                        if (_isContinuousModeActive.value) {
+                            toggleContinuousMode()
+                        }
+                    } else if (_isContinuousModeActive.value && (latest.content.contains("[Voice Note") || !latest.content.startsWith("["))) {
+                        playVoiceMessage(latest.content)
+                    }
+                }
+            }
+        }
     }
 
     val messages: StateFlow<List<Message>> = messageRepository.observeMessages(chatId)
@@ -159,7 +176,6 @@ class ConversationViewModel(
         }
 
         val modeTag = when (mode) {
-            VoiceMode.WALKIE_TALKIE -> "WALKIE"
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
@@ -210,7 +226,6 @@ class ConversationViewModel(
 
         val mode = _currentVoiceMode.value
         val modeTag = when (mode) {
-            VoiceMode.WALKIE_TALKIE -> "WALKIE"
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
@@ -259,7 +274,6 @@ class ConversationViewModel(
 
         val isEmergency = (mode == VoiceMode.EMERGENCY)
         val modeTag = when (mode) {
-            VoiceMode.WALKIE_TALKIE -> "WALKIE"
             VoiceMode.EMERGENCY -> "SOS"
             VoiceMode.CONTINUOUS -> "CONTINUOUS"
             VoiceMode.PUSH_TO_TALK -> "PTT"
@@ -306,6 +320,16 @@ class ConversationViewModel(
             _currentVoiceMode.value = VoiceMode.CONTINUOUS
             _continuousState.value = ContinuousState.LISTENING
             _liveTranscript.value = ""
+            com.astramesh.domain.model.CallSessionManager.acceptCall(recipientId)
+
+            viewModelScope.launch {
+                sendMessageUseCase(
+                    chatId = chatId,
+                    recipientId = recipientId,
+                    content = "[CALL_INVITE]: Phone call initiated",
+                    priority = MessagePriority.DIRECT_MESSAGE
+                )
+            }
 
             voiceEngineManager?.startStt(
                 language = _speechLanguage.value,
@@ -339,6 +363,15 @@ class ConversationViewModel(
             _currentVoiceMode.value = VoiceMode.PUSH_TO_TALK
             _continuousState.value = ContinuousState.IDLE
             _liveTranscript.value = ""
+            com.astramesh.domain.model.CallSessionManager.endCall()
+            viewModelScope.launch {
+                sendMessageUseCase(
+                    chatId = chatId,
+                    recipientId = recipientId,
+                    content = "[CALL_ENDED]: Phone call ended",
+                    priority = MessagePriority.DIRECT_MESSAGE
+                )
+            }
             voiceEngineManager?.stopStt()
         }
     }

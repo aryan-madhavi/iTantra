@@ -546,6 +546,10 @@ class VoiceEngineManager(
     // ==========================================
 
     override fun translateText(text: String, sourceLang: Language, targetLang: Language): String {
+        if (!com.astramesh.core.TranslationSettings.isTranslationEnabled.value) {
+            AstraLog.d(TAG, "ASTRA_VOICE: Translation globally disabled, returning original text")
+            return text
+        }
         if (sourceLang == targetLang) {
             AstraLog.d(TAG, "ASTRA_VOICE: [TRANSLATION path=\"same_lang\"] ${sourceLang.name} -> ${targetLang.name}")
             return text

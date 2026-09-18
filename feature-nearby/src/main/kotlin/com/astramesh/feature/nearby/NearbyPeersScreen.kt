@@ -42,7 +42,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.domain.model.Peer
@@ -202,7 +204,9 @@ fun PeerCard(
                     text = peer.displayName ?: peer.nodeId.toHex(),
                     color = AstraTextPrimary,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -211,17 +215,22 @@ fun PeerCard(
                     Text(
                         text = "${peer.rssi} dBm",
                         color = AstraTextSecondary,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.width(8.dp))
+
             Button(
                 onClick = onConnect,
                 colors = ButtonDefaults.buttonColors(containerColor = AstraCyan),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.widthIn(min = 90.dp)
             ) {
-                Text("Connect", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("Connect", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
             }
         }
     }

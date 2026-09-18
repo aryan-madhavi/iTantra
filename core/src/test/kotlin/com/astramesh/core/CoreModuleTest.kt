@@ -58,7 +58,7 @@ class CoreModuleTest {
     fun `voice payload serialization and deserialization roundtrip`() {
         val sampleAudio = byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08)
         val payload = VoicePayload(
-            mode = VoiceMode.WALKIE_TALKIE,
+            mode = VoiceMode.PUSH_TO_TALK,
             sequence = 12,
             isFinal = true,
             transcript = "Roger that",
@@ -69,7 +69,7 @@ class CoreModuleTest {
         assertThat(VoicePayload.isVoicePayload(bytes)).isTrue()
 
         val restored = VoicePayload.deserialize(bytes)
-        assertThat(restored.mode).isEqualTo(VoiceMode.WALKIE_TALKIE)
+        assertThat(restored.mode).isEqualTo(VoiceMode.PUSH_TO_TALK)
         assertThat(restored.sequence).isEqualTo(12)
         assertThat(restored.isFinal).isTrue()
         assertThat(restored.transcript).isEqualTo("Roger that")
