@@ -46,7 +46,7 @@ android {
     }
 
     androidResources {
-        // Assets configured cleanly
+        noCompress += listOf("onnx", "bin")
     }
 
     packaging {
