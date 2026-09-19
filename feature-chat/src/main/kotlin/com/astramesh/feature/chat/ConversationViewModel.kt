@@ -88,7 +88,7 @@ class ConversationViewModel(
     private val hasSentCurrentPttUtterance = AtomicBoolean(false)
 
     private val _speechLanguage = MutableStateFlow(voiceEngineManager?.preferredLanguage ?: com.astramesh.core.Language.HINDI)
-    val speechLanguage: StateFlow<com.astramesh.core.Language> = _speechLanguage.asStateFlow()
+    val speechLanguage: StateFlow<com.astramesh.core.Language> = meshRepository?.preferredLanguage ?: _speechLanguage.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -123,7 +123,6 @@ class ConversationViewModel(
 
     fun setSpeechLanguage(language: com.astramesh.core.Language) {
         _speechLanguage.value = language
-        voiceEngineManager?.preferredLanguage = language
         meshRepository?.setPreferredLanguage(language)
         AstraLog.d("ConversationViewModel", "SPEECH_LANG set to ${language.name}")
     }

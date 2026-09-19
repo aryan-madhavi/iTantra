@@ -25,9 +25,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
@@ -103,7 +103,7 @@ fun EmergencyScreen(
     onBackClicked: (() -> Unit)? = null
 ) {
     val isTranslationEnabled by TranslationSettings.isTranslationEnabled.collectAsState()
-    var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
+    val selectedLanguage by (meshRepository?.preferredLanguage ?: remember { MutableStateFlow(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }).collectAsState(initial = voiceEngineManager?.preferredLanguage ?: Language.HINDI)
     var languageDropdownExpanded by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -114,38 +114,30 @@ fun EmergencyScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AstraBackground)
-            .padding(14.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        // -------------------------------------------------------------
-        // CONSISTENT TOP TACTICAL TELEMETRY HEADER
-        // -------------------------------------------------------------
+        // Top App Bar / Status Indicator
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(AstraCrimson)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "SOS BEACON",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
-                        color = AstraTextPrimary,
-                        letterSpacing = 1.sp
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onBackClicked != null) {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = AstraTextPrimary
+                        )
+                    }
                 }
                 Text(
-                    text = "Node ${localNodeId.toHex().take(8)} • MAXIMUM PRIORITY FLOOD",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AstraCrimson
+                    text = "EMERGENCY SOS BEACON",
+                    color = AstraCrimson,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
                 )
             }
 
@@ -179,9 +171,7 @@ fun EmergencyScreen(
                             DropdownMenuItem(
                                 text = { Text("${lang.nativeName} (${lang.englishName})") },
                                 onClick = {
-                                    selectedLanguage = lang
                                     languageDropdownExpanded = false
-                                    voiceEngineManager?.preferredLanguage = lang
                                     meshRepository?.setPreferredLanguage(lang)
                                     AstraLog.d("EmergencyScreen", "SOS Language changed to ${lang.englishName}")
                                 }

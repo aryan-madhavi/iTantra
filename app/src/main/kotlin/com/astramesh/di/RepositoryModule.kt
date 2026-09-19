@@ -61,7 +61,10 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideMeshRepository(meshEngine: MeshEngine): MeshRepository {
-        return MeshRepositoryImpl(meshEngine)
+    fun provideMeshRepository(
+        meshEngine: MeshEngine,
+        identityRepository: IdentityRepository
+    ): MeshRepository {
+        return MeshRepositoryImpl(meshEngine, identityRepository)
     }
 }

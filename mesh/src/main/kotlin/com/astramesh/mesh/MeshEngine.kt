@@ -69,8 +69,16 @@ class MeshEngine(
     private val _meshStatus = MutableStateFlow(MeshStatus())
     val meshStatus: StateFlow<MeshStatus> = _meshStatus.asStateFlow()
 
-    @Volatile
-    var preferredLanguage: com.astramesh.core.Language = com.astramesh.core.Language.HINDI
+    private val _preferredLanguage = MutableStateFlow<com.astramesh.core.Language>(com.astramesh.core.Language.HINDI)
+    val preferredLanguageFlow: StateFlow<com.astramesh.core.Language> = _preferredLanguage.asStateFlow()
+
+    var preferredLanguage: com.astramesh.core.Language
+        get() = _preferredLanguage.value
+        set(value) {
+            _preferredLanguage.value = value
+            speechSynthesizer?.setPreferredSpeechLanguage(value)
+            speechSynthesizer?.preload(value)
+        }
 
     private val sentPacketsCounter = AtomicLong(0)
     private val relayedPacketsCounter = AtomicLong(0)

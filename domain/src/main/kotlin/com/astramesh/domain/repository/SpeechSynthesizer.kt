@@ -17,4 +17,7 @@ interface SpeechSynthesizer {
     )
 
     fun playEmergencyBeacon(language: Language) {}
+
+    fun preload(language: Language) {}
+    fun setPreferredSpeechLanguage(language: Language) {}
 }

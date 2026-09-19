@@ -33,8 +33,7 @@ class SettingsViewModel(
     private val _trustStatus = MutableStateFlow<String>("Verified Cryptographic Identity")
     val trustStatus: StateFlow<String> = _trustStatus.asStateFlow()
 
-    private val _preloadLanguage = MutableStateFlow<com.astramesh.core.Language>(com.astramesh.core.Language.HINDI)
-    val preloadLanguage: StateFlow<com.astramesh.core.Language> = _preloadLanguage.asStateFlow()
+    val preloadLanguage: StateFlow<com.astramesh.core.Language> = meshRepository.preferredLanguage
 
     val meshStatus: StateFlow<MeshStatus> = meshRepository.meshStatus
 
@@ -45,7 +44,6 @@ class SettingsViewModel(
     private fun loadIdentity() {
         viewModelScope.launch {
             _displayName.value = identityRepository.getDisplayName()
-            _preloadLanguage.value = identityRepository.getPreloadLanguage()
             val id = identityRepository.getLocalIdentity()
             _rootPublicKey.value = id.publicKey
             val nodeId = identityRepository.getRotatingNodeId()
@@ -64,12 +62,8 @@ class SettingsViewModel(
     }
 
     fun updatePreloadLanguage(language: com.astramesh.core.Language) {
-        _preloadLanguage.value = language
-        viewModelScope.launch {
-            identityRepository.setPreloadLanguage(language)
-            meshRepository.setPreferredLanguage(language)
-            AstraLog.d("SettingsViewModel", "PRELOAD TTS Language updated to: ${language.name} (${language.code})")
-        }
+        meshRepository.setPreferredLanguage(language)
+        AstraLog.d("SettingsViewModel", "PRELOAD TTS Language updated to: ${language.name} (${language.code})")
     }
 
     fun resetIdentity(onComplete: () -> Unit) {

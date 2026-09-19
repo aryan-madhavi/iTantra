@@ -4,15 +4,22 @@ import com.astramesh.common.AstraResult
 import com.astramesh.core.NodeId
 import com.astramesh.domain.model.MeshStatus
 import com.astramesh.domain.model.MessagePriority
+import com.astramesh.domain.repository.IdentityRepository
 import com.astramesh.domain.repository.MeshRepository
 import com.astramesh.mesh.MeshEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class MeshRepositoryImpl(
-    private val meshEngine: MeshEngine
+    private val meshEngine: MeshEngine,
+    private val identityRepository: IdentityRepository? = null,
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) : MeshRepository {
 
     override val meshStatus: StateFlow<MeshStatus> get() = meshEngine.meshStatus
+    override val preferredLanguage: StateFlow<com.astramesh.core.Language> get() = meshEngine.preferredLanguageFlow
 
     override suspend fun startMesh(): AstraResult<Unit> = meshEngine.start()
 
@@ -35,5 +42,10 @@ class MeshRepositoryImpl(
 
     override fun setPreferredLanguage(language: com.astramesh.core.Language) {
         meshEngine.preferredLanguage = language
+        identityRepository?.let { idRepo ->
+            coroutineScope.launch {
+                idRepo.setPreloadLanguage(language)
+            }
+        }
     }
 }

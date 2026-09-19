@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.astramesh.common.AstraLog
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.astramesh.core.ChatId
 import com.astramesh.core.CommunicationMode
 import com.astramesh.core.Language
@@ -155,8 +156,8 @@ fun HomeScreen(
     var directCommsMode by remember { mutableStateOf(DirectCommsMode.WALKIE_TALKIE) }
     var isDirectPhoneCallActive by remember { mutableStateOf(false) }
 
-    // Selected language for speech input / output
-    var selectedLanguage by remember { mutableStateOf(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }
+    // Selected language for speech input / output (observed from unified meshRepository source of truth)
+    val selectedLanguage by (meshRepository?.preferredLanguage ?: remember { MutableStateFlow(voiceEngineManager?.preferredLanguage ?: Language.HINDI) }).collectAsState(initial = voiceEngineManager?.preferredLanguage ?: Language.HINDI)
     var languageDropdownExpanded by remember { mutableStateOf(false) }
 
     // PTT Transceiver State
@@ -291,9 +292,7 @@ fun HomeScreen(
                             DropdownMenuItem(
                                 text = { Text("${lang.nativeName} (${lang.englishName})") },
                                 onClick = {
-                                    selectedLanguage = lang
                                     languageDropdownExpanded = false
-                                    voiceEngineManager?.preferredLanguage = lang
                                     meshRepository?.setPreferredLanguage(lang)
                                     AstraLog.d("HomeScreen", "Language changed to ${lang.englishName}")
                                 }

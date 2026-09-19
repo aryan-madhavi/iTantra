@@ -181,6 +181,14 @@ class VoiceEngineManager(
         ttsEngine.preload(language)
     }
 
+    override fun preload(language: Language) {
+        preloadTts(language)
+    }
+
+    override fun setPreferredSpeechLanguage(language: Language) {
+        preferredLanguage = language
+    }
+
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var recordingJob: Job? = null

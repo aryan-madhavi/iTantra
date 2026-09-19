@@ -25,21 +25,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.astramesh.common.AstraLog
 import com.astramesh.core.Language
 import com.astramesh.core.NodeId
 import com.astramesh.core.OfflineLanguageDetector
@@ -285,22 +295,17 @@ fun TacticalMessageLogItem(
 ) {
     val isFromMe = message.senderId == localNodeId
     val isEmergency = message.priority == MessagePriority.EMERGENCY
-    var isExpanded by remember { mutableStateOf(false) }
+    var showDetailsDialog by remember { mutableStateOf(false) }
 
     val parsed = remember(message.content, localLanguage) { parseMessageContent(message.content, localLanguage) }
     val displayTranslationBadge = parsed.translationBadge ?: untranslatedLangCode
     val isUntranslatedBadge = parsed.isUntranslated || (untranslatedLangCode != null && parsed.translationBadge == null)
 
     Card(
-        onClick = { isExpanded = !isExpanded },
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ),
+        onClick = {
+            showDetailsDialog = true
+        },
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isEmergency -> AstraCrimson.copy(alpha = 0.12f)
@@ -316,7 +321,7 @@ fun TacticalMessageLogItem(
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-            // Top Row: [TX/RX], Translation Chip, Replay Button, Timestamp, Status
+            // Top Row: [TX/RX], Translation Chip, Sender info, Time, Status, Replay
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -439,25 +444,220 @@ fun TacticalMessageLogItem(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            // Message Body text: tap to expand / 2 lines collapsed preview
+            // Message Body text: 2 lines collapsed preview in list
             Text(
                 text = parsed.cleanText,
                 color = AstraTextPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 lineHeight = 16.sp,
-                maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
 
-            if (!isExpanded && parsed.cleanText.length > 70) {
-                Text(
-                    text = "▼ tap to expand",
-                    color = AstraTextSecondary.copy(alpha = 0.6f),
-                    fontSize = 8.sp,
-                    modifier = Modifier.padding(top = 1.dp)
-                )
+    // Popup Modal Dialog for Detailed Inspection
+    if (showDetailsDialog) {
+        Dialog(
+            onDismissRequest = { showDetailsDialog = false },
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(AstraSurface)
+                    .border(
+                        1.dp,
+                        if (isEmergency) AstraCrimson.copy(alpha = 0.8f) else AstraCyan.copy(alpha = 0.5f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Header: Title & Direction Tag & Close Icon
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val directionTag = if (isFromMe) "TRANSMISSION (TX)" else "RECEPTION (RX)"
+                            val tagColor = when {
+                                isEmergency -> AstraCrimson
+                                isFromMe -> AstraCyan
+                                else -> AstraEmerald
+                            }
+                            Text(
+                                text = directionTag,
+                                color = tagColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            if (isEmergency) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(AstraCrimson.copy(alpha = 0.2f))
+                                        .border(1.dp, AstraCrimson, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "EMERGENCY",
+                                        color = AstraCrimson,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { showDetailsDialog = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = AstraTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = AstraOutline.copy(alpha = 0.3f), thickness = 0.5.dp)
+
+                    // Full Message Content Box
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(AstraBackground.copy(alpha = 0.8f))
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "MESSAGE CONTENT",
+                            color = AstraTextSecondary,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Text(
+                            text = parsed.cleanText,
+                            color = AstraTextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = 18.sp
+                        )
+                    }
+
+                    // Metadata Details Box
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(AstraSurfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val fullDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm:ss", Locale.getDefault())
+                        val fullDateStr = fullDateFormat.format(Date(message.timestamp))
+                        val senderStr = if (isFromMe) "Self (${localNodeId.toHex()})" else "Node ${message.senderId.toHex()}"
+                        val hopStr = if (message.hopCount == 0) "Direct (0 Hops)" else "${message.hopCount} Hops (TTL: ${message.ttl})"
+                        val translationStr = displayTranslationBadge ?: (localLanguage?.englishName ?: "Standard")
+                        val statusStr = "${message.status.name} • $hopStr"
+
+                        TacticalDetailRow(label = "SENDER:", value = senderStr, valueColor = if (isFromMe) AstraCyan else AstraTextPrimary)
+                        TacticalDetailRow(label = "TIMESTAMP:", value = fullDateStr)
+                        TacticalDetailRow(label = "LANGUAGE / PAIR:", value = translationStr, valueColor = if (isEmergency) AstraCrimson else AstraCyan)
+                        TacticalDetailRow(label = "STATUS & ROUTE:", value = statusStr, valueColor = AstraEmerald)
+                        TacticalDetailRow(label = "PRIORITY:", value = if (isEmergency) "EMERGENCY DISTRESS" else message.priority.name, valueColor = if (isEmergency) AstraCrimson else AstraTextSecondary)
+                        TacticalDetailRow(label = "MESSAGE ID:", value = message.id.value)
+                    }
+
+                    // Actions: Replay Audio & Dismiss
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                onReplay()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isEmergency) AstraCrimson else AstraCyan
+                            ),
+                            border = BorderStroke(1.dp, if (isEmergency) AstraCrimson.copy(alpha = 0.6f) else AstraCyan.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("REPLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+
+                        Button(
+                            onClick = { showDetailsDialog = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isEmergency) AstraCrimson else AstraCyan,
+                                contentColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text("DISMISS", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun TacticalDetailRow(
+    label: String,
+    value: String,
+    valueColor: Color = AstraTextPrimary
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = label,
+            color = AstraTextSecondary,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        Text(
+            text = value,
+            color = valueColor,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
