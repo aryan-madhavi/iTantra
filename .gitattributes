@@ -1,17 +1,8 @@
-# Prevent Github Languages stats skewing:
+# Prevent GitHub Language stats skewing
 
-# Binaries and assets
-**/*.xcframework/** linguist-vendored
-**/*.xcassets/** linguist-vendored
-# Generated files
-**/*.pbxproj linguist-generated
-**/*.storyboard linguist-generated
-Package.resolved linguist-generated
-# Downloaded CSVs
-relays/online_relays_gps.csv linguist-vendored
 # Docs
 **/*.md linguist-documentation
-# Configs
-Configs/*.xcconfig linguist-documentation
-**/*.plist linguist-documentation
+
+# LFS for ONNX machine translation models
 *.onnx filter=lfs diff=lfs merge=lfs -text
+

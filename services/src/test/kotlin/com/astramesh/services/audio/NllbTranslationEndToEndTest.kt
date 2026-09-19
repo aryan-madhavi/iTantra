@@ -28,7 +28,7 @@ class NllbTranslationEndToEndTest {
             var currentDir: File? = File(System.getProperty("user.dir") ?: ".")
             var modelsDir: File? = null
             while (currentDir != null) {
-                val candidate = File(currentDir, "models_archive/mt/nllb200-int8-onnx")
+                val candidate = File(currentDir, "app/src/main/assets/models/mt/nllb200-int8-onnx")
                 if (candidate.exists() && File(candidate, "tokenizer.json").exists()) {
                     modelsDir = candidate
                     break
@@ -36,7 +36,7 @@ class NllbTranslationEndToEndTest {
                 currentDir = currentDir.parentFile
             }
             if (modelsDir == null) {
-                val fallback = File("/home/aryan/ASTRA/bitchat/models_archive/mt/nllb200-int8-onnx")
+                val fallback = File("/home/aryan/ASTRA/bitchat/app/src/main/assets/models/mt/nllb200-int8-onnx")
                 if (fallback.exists()) modelsDir = fallback
             }
 

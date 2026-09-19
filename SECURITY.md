@@ -1,45 +1,29 @@
-# Security policy
+# Security Policy
 
-bitchat is a security-focused messenger, and reports about its security are taken seriously. This page says how to report, what counts as a vulnerability here, and what to expect.
+AstraMesh / iTantra is a security-focused mesh messenger, and reports about its security are taken seriously. This page explains how to report vulnerabilities and defines our security scope.
 
-## Reporting a vulnerability
+## Reporting a Vulnerability
 
-**Use GitHub's private vulnerability reporting:** [Report a vulnerability](https://github.com/permissionlesstech/bitchat/security/advisories/new) (Security tab → "Report a vulnerability").
+**Use GitHub's private vulnerability reporting** under the repository's Security tab.
 
-Please do not open a public issue for anything that could put people at risk before a fix ships. bitchat is used by people in hostile network environments; a public proof-of-concept can be acted on faster than a patch can reach them.
+Please do not open a public issue for anything that could put people at risk before a fix ships. AstraMesh is designed for high-risk network environments; a public proof-of-concept can be acted on before a patch reaches users.
 
-A useful report says what an attacker can do, against which build (App Store version or commit hash), and how to reproduce it. A failing test or a packet capture is worth more than speculation about impact.
-
-## What to expect
-
-This is a volunteer-maintained project. The aim is to acknowledge reports within a week and to move on confirmed vulnerabilities immediately — historically, confirmed protocol and key-handling issues have been fixed within days. You'll be kept in the loop in the advisory thread, and credited in the fix unless you'd rather not be. There is no bug bounty.
-
-## Supported versions
-
-Fixes ship to the latest App Store release and `main`. Older releases are not patched; the fix is to update.
+A useful report states what an attacker can exploit, against which release or commit hash, and step-by-step reproduction instructions.
 
 ## Scope
 
-In scope — the properties the app promises:
+In scope — core cryptographic and privacy guarantees:
 
-- Confidentiality and integrity of private messages and media (Noise sessions over BLE; over Nostr, bitchat's own ephemeral private-envelope format — a proprietary scheme, *not* NIP-17/NIP-44/NIP-59, see `WHITEPAPER.md`)
-- Identity: key handling, verification, impersonation, session binding
-- The panic wipe actually destroying what it claims to destroy
-- Metadata exposure beyond what the documentation already discloses (see `PRIVACY_POLICY.md` and `docs/privacy-assessment.md`)
-- Downgrade paths: anything that silently moves traffic from an encrypted path to a plaintext one
-- Tor routing: anything that makes traffic bypass Tor while the Tor preference is on
-- Supply-chain integrity of the source and its vendored binaries (see `docs/VERIFYING-A-BUILD.md`)
+- Confidentiality and integrity of private messages, media, and voice frames (Noise XX sessions over BLE, Double Ratchet, see `WHITEPAPER.md`).
+- Identity: key handling, signature verification, impersonation resistance, session binding.
+- Local persistence & panic wipe: key destruction and complete local data erasure.
+- Metadata exposure beyond what the documentation discloses (see `PRIVACY_POLICY.md` and `docs/android/SECURITY_AND_CRYPTOGRAPHY.md`).
+- Downgrade attacks: anything silently converting encrypted traffic to plaintext.
 
-Out of scope — documented design properties, not vulnerabilities:
+Out of scope — documented design properties:
 
-- Public visibility of mesh announces and geohash channels: broadcast content, nicknames, and public keys are public by design
-- Bluetooth proximity being observable: anyone in radio range can tell a BLE device is present
-- Mesh flooding/relay behavior inherent to a broadcast mesh (rate limits exist; the topology is what it is)
-- Behavior of third-party Nostr relays
-- Denial of service requiring physical proximity, and battery-drain attacks in general
+- Public visibility of broadcast mesh announcements: nicknames and public keys are broadcast by design.
+- Bluetooth physical proximity observability: passive BLE scanners can detect RF transmission in physical range.
+- Mesh flooding/relay behavior inherent to ad-hoc mesh topologies.
+- Denial of service requiring continuous physical RF jamming.
 
-If you're unsure whether something is in scope, report it privately anyway — a false alarm costs a few minutes; a real issue reported publicly can cost much more.
-
-## Verifying what you're running
-
-If your concern is that the app or source you have has been tampered with, that has its own document: `docs/VERIFYING-A-BUILD.md`.

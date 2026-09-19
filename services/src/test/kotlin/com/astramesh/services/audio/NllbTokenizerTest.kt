@@ -18,7 +18,7 @@ class NllbTokenizerTest {
             var currentDir: File? = File(System.getProperty("user.dir") ?: ".")
             var modelFile: File? = null
             while (currentDir != null) {
-                val candidate = File(currentDir, "models_archive/mt/nllb200-int8-onnx/tokenizer.json")
+                val candidate = File(currentDir, "app/src/main/assets/models/mt/nllb200-int8-onnx/tokenizer.json")
                 if (candidate.exists()) {
                     modelFile = candidate
                     break
@@ -26,7 +26,7 @@ class NllbTokenizerTest {
                 currentDir = currentDir.parentFile
             }
             if (modelFile == null || !modelFile.exists()) {
-                val fallback = File("/home/aryan/ASTRA/bitchat/models_archive/mt/nllb200-int8-onnx/tokenizer.json")
+                val fallback = File("/home/aryan/ASTRA/bitchat/app/src/main/assets/models/mt/nllb200-int8-onnx/tokenizer.json")
                 if (fallback.exists()) modelFile = fallback
             }
 
