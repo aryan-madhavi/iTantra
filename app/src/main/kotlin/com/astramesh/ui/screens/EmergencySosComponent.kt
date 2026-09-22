@@ -146,7 +146,7 @@ fun EmergencySosActionArea(
             val finalTranscript = voiceEngineManager?.stopSttAndAwaitResult() ?: liveTranscript
             val textToSend = if (finalTranscript.isNotBlank()) finalTranscript else selectedLanguage.getDefaultEmergencyText()
 
-            AstraLog.d("EmergencySos", "Stage 2 Voice Briefing: '$textToSend'")
+            AstraLog.d("EmergencySos", "[UI_EVENT] SOS_TRIGGER stage=2_voice_brief text='$textToSend'")
             emergencyBroadcastUseCase.sendVoiceBriefing(
                 transcript = textToSend,
                 language = selectedLanguage
@@ -162,6 +162,7 @@ fun EmergencySosActionArea(
         liveTranscript = ""
         recordingCountdown = 10
 
+        AstraLog.d("EmergencySos", "[UI_EVENT] MIC_PRESS mode=SOS_VOICE_BRIEF")
         voiceEngineManager?.startStt(
             language = selectedLanguage,
             onRmsChanged = { rms -> liveRms = rms },
@@ -241,7 +242,7 @@ fun EmergencySosActionArea(
                                             }
 
                                             if (isActive && holdProgress >= 1f) {
-                                                AstraLog.d("EmergencySos", "Stage 1: Dispatching Immediate SOS Beacon in ${selectedLanguage.englishName}...")
+                                                AstraLog.d("EmergencySos", "[UI_EVENT] SOS_TRIGGER stage=1_beacon lang=${selectedLanguage.englishName}")
                                                 onStatusMessage?.invoke("STAGE 1: Immediate SOS Beacon Dispatched to Mesh!")
                                                 isHoldingSos = false
                                                 holdProgress = 0f

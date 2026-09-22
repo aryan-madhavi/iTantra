@@ -566,6 +566,7 @@ class MeshEngine(
                 status = com.astramesh.domain.model.MessageStatus.DELIVERED,
                 priority = if (packet.flags.isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
             )
+            AstraLog.d("MeshEngine", "[UI_EVENT] MSG_RECEIVE type=TEXT from=${packet.source.toHex()}")
             messageRepo.insertMessage(message)
 
             val peer = peerRepository?.getPeerByNodeId(packet.source)

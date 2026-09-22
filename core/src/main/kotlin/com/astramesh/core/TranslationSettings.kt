@@ -1,5 +1,6 @@
 package com.astramesh.core
 
+import com.astramesh.common.AstraLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,11 +15,13 @@ object TranslationSettings {
 
     fun setTranslationEnabled(enabled: Boolean) {
         _isTranslationEnabled.value = enabled
+        AstraLog.d("TranslationSettings", "[UI_EVENT] TRANSLATION_TOGGLE enabled=$enabled")
     }
 
     fun toggleTranslation(): Boolean {
         val next = !_isTranslationEnabled.value
         _isTranslationEnabled.value = next
+        AstraLog.d("TranslationSettings", "[UI_EVENT] TRANSLATION_TOGGLE enabled=$next")
         return next
     }
 }

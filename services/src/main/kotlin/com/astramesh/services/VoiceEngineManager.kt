@@ -440,6 +440,10 @@ class VoiceEngineManager(
      * @param onFinalResult Completed sentence transcript fired immediately on VAD SPEECH_END (for mesh transmission)
      * @param onResult Backward-compatible generic result callback
      */
+    // NOTE: There is a normal, expected ~250-300ms gap between a [UI_EVENT] MIC_PRESS log and
+    // the corresponding [MODEL_LIFECYCLE] LOAD_START for STT, because Silero VAD buffers ~256ms
+    // of audio (8 chunks of 40ms PCM frames) before the first partial decode triggers ONNX
+    // session creation. This is correct behavior, not a bug — do not "fix" this gap.
     @SuppressLint("MissingPermission")
     fun startStt(
         language: Language = Language.HINDI,

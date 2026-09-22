@@ -689,6 +689,7 @@ fun HomeScreen(
                                             )
                                         }
 
+                                        AstraLog.d("HomeScreen", "[UI_EVENT] MIC_PRESS mode=PHONE_CALL")
                                         voiceEngineManager?.startStt(
                                             language = selectedLanguage,
                                             onRmsChanged = { rms -> liveRms = rms },
@@ -699,6 +700,7 @@ fun HomeScreen(
                                                 if (finalSentence.isNotBlank() && isDirectPhoneCallActive) {
                                                     liveTranscript = finalSentence
                                                     scope.launch {
+                                                        AstraLog.d("HomeScreen", "[UI_EVENT] MSG_SEND mode=PHONE_CALL type=VOICE")
                                                         sendMessageUseCase.sendVoiceMessageByMode(
                                                             mode = CommunicationMode.DIRECT,
                                                             directRecipientId = activeRecipientId,
@@ -784,7 +786,7 @@ fun HomeScreen(
                                                 }
                                             }
 
-                                            AstraLog.d("HomeScreen", "PTT_START initiated mode=${communicationMode.name} lang=${selectedLanguage.name}")
+                                            AstraLog.d("HomeScreen", "[UI_EVENT] MIC_PRESS mode=${communicationMode.name} lang=${selectedLanguage.name}")
                                             voiceEngineManager?.startStt(
                                                 language = selectedLanguage,
                                                 onRmsChanged = { rms -> liveRms = rms }
@@ -796,6 +798,7 @@ fun HomeScreen(
 
                                             tryAwaitRelease()
 
+                                            AstraLog.d("HomeScreen", "[UI_EVENT] MIC_RELEASE mode=${communicationMode.name}")
                                             // RELEASE TO SEND
                                             pttState = PttState.TRANSMITTING
                                             liveRms = 0
@@ -825,7 +828,7 @@ fun HomeScreen(
                                                 val transcriptToSend = rawTranscript
 
                                                 if (transcriptToSend.isNotBlank()) {
-                                                    AstraLog.d("HomeScreen", "PTT_SEND mode=${communicationMode.name} text='$transcriptToSend' lang=${selectedLanguage.name}")
+                                                    AstraLog.d("HomeScreen", "[UI_EVENT] MSG_SEND mode=${communicationMode.name} type=VOICE text='$transcriptToSend' lang=${selectedLanguage.name}")
                                                     sendMessageUseCase.sendVoiceMessageByMode(
                                                         mode = communicationMode,
                                                         directRecipientId = if (communicationMode == CommunicationMode.DIRECT) activeRecipientId else null,

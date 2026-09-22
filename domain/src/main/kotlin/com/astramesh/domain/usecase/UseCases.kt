@@ -62,7 +62,7 @@ class SendMessageUseCase(
             )
         )
 
-        com.astramesh.common.AstraLog.d("SendMessageUseCase", "MSG_SEND id=${message.id} senderId=$senderId recipientId=$recipientId")
+        com.astramesh.common.AstraLog.d("SendMessageUseCase", "[UI_EVENT] MSG_SEND type=TEXT id=${message.id} senderId=$senderId recipientId=$recipientId")
         // Dispatch through mesh
         val payload = content.toByteArray(Charsets.UTF_8)
         val sendResult = meshRepository.sendPacket(recipientId, payload, priority)
@@ -115,6 +115,7 @@ class SendMessageUseCase(
             )
         )
 
+        com.astramesh.common.AstraLog.d("SendMessageUseCase", "[UI_EVENT] MSG_SEND type=VOICE id=${message.id} recipientId=$recipientId")
         // Dispatch serialized binary voice payload through mesh
         val payloadBytes = voicePayload.serialize()
         val sendResult = meshRepository.sendPacket(recipientId, payloadBytes, priority)
@@ -181,6 +182,7 @@ class SendMessageUseCase(
             )
         )
 
+        com.astramesh.common.AstraLog.d("SendMessageUseCase", "[UI_EVENT] MSG_SEND type=VOICE id=${message.id} recipientId=$recipientId")
         val payloadBytes = ithantraMessage.toBinary()
         val sendResult = meshRepository.sendPacket(recipientId, payloadBytes, priority)
         if (sendResult.isSuccess) {

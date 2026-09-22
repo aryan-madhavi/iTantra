@@ -1,5 +1,6 @@
 package com.astramesh.data.repository
 
+import com.astramesh.common.AstraLog
 import com.astramesh.common.AstraResult
 import com.astramesh.core.NodeId
 import com.astramesh.domain.model.MeshStatus
@@ -40,7 +41,14 @@ class MeshRepositoryImpl(
         return result.map { }
     }
 
+    // NOTE: Changing the preferred language does NOT eagerly reload the TTS model. The MMS-TTS
+    // model swap only happens lazily, at the moment speech synthesis is actually requested
+    // (speakText() or incoming-message auto-playback) — so a [UI_EVENT] LANGUAGE_CHANGE log
+    // will typically precede any [MODEL_LIFECYCLE] TTS DISPOSE/LOAD by an arbitrary, possibly
+    // long, gap until the next actual TTS playback occurs. This is intentional lazy-loading
+    // behavior, not a delayed/broken language switch.
     override fun setPreferredLanguage(language: com.astramesh.core.Language) {
+        AstraLog.d("MeshRepositoryImpl", "[UI_EVENT] LANGUAGE_CHANGE lang=${language.name}")
         meshEngine.preferredLanguage = language
         identityRepository?.let { idRepo ->
             coroutineScope.launch {

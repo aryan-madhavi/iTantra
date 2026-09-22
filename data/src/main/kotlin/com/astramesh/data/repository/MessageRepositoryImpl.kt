@@ -1,5 +1,6 @@
 package com.astramesh.data.repository
 
+import com.astramesh.common.AstraLog
 import com.astramesh.common.AstraResult
 import com.astramesh.core.AttachmentId
 import com.astramesh.core.ChatId
@@ -30,6 +31,9 @@ class MessageRepositoryImpl(
     }
 
     override suspend fun insertMessage(message: Message): AstraResult<Unit> = AstraResult.of {
+        if (message.status == MessageStatus.DELIVERED) {
+            AstraLog.d("MessageRepositoryImpl", "[UI_EVENT] MSG_RECEIVE type=${message.contentType.name} id=${message.id.value}")
+        }
         messageDao.insertMessage(message.toEntity())
     }
 

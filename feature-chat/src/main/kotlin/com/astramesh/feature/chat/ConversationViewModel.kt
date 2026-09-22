@@ -180,7 +180,7 @@ class ConversationViewModel(
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
-        AstraLog.d("ConversationViewModel", "$modeTag START recording initiated lang=${_speechLanguage.value.name}")
+        AstraLog.d("ConversationViewModel", "[UI_EVENT] MIC_PRESS mode=$modeTag lang=${_speechLanguage.value.name}")
 
         // Start live duration counter
         timerJob?.cancel()
@@ -230,7 +230,7 @@ class ConversationViewModel(
             VoiceMode.EMERGENCY -> "SOS"
             else -> "PTT"
         }
-        AstraLog.d("ConversationViewModel", "$modeTag STOP recording ended duration=${duration}s")
+        AstraLog.d("ConversationViewModel", "[UI_EVENT] MIC_RELEASE mode=$modeTag duration=${duration}s")
 
         viewModelScope.launch {
             val recognizedText = voiceEngineManager?.stopSttAndAwaitResult(timeoutMs = 1200L) ?: ""
@@ -280,7 +280,7 @@ class ConversationViewModel(
             VoiceMode.PUSH_TO_TALK -> "PTT"
         }
 
-        AstraLog.d("ConversationViewModel", "SEND $modeTag sentence text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
+        AstraLog.d("ConversationViewModel", "[UI_EVENT] MSG_SEND mode=$modeTag type=VOICE text='$textToSend' lang=${_speechLanguage.value.name} isEmergency=$isEmergency")
         viewModelScope.launch {
             sendMessageUseCase.sendIthantraVoiceMessage(
                 chatId = chatId,
@@ -297,7 +297,7 @@ class ConversationViewModel(
      */
     fun sendEmergencySos(alertText: String? = null) {
         val finalAlert = alertText ?: _speechLanguage.value.getDefaultEmergencyText()
-        AstraLog.d("ConversationViewModel", "SOS Broadcasting emergency alert to mesh: text='$finalAlert'")
+        AstraLog.d("ConversationViewModel", "[UI_EVENT] SOS_TRIGGER source=talk_direct text='$finalAlert'")
         viewModelScope.launch {
             sendMessageUseCase.sendIthantraVoiceMessage(
                 chatId = chatId,
