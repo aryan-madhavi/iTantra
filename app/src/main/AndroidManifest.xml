@@ -32,6 +32,7 @@
     <application
         android:name=".AstraApplication"
         android:allowBackup="false"
+        android:allowAudioPlaybackCapture="true"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"

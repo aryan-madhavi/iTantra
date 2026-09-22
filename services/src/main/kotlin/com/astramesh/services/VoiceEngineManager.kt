@@ -363,9 +363,9 @@ class VoiceEngineManager(
             audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setLegacyStreamType(AudioManager.STREAM_VOICE_CALL)
+                        .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
                         .build()
                 )
                 .setAudioFormat(
@@ -388,8 +388,9 @@ class VoiceEngineManager(
                     if (chunk != null) {
                         audioTrack?.write(chunk, 0, chunk.size)
                     } else {
-                        kotlinx.coroutines.delay(10)
+                        kotlinx.coroutines.delay(20)
                         if (playbackQueue.isEmpty()) {
+                            kotlinx.coroutines.delay(150)
                             isPlaying.set(false)
                             break
                         }
@@ -634,8 +635,9 @@ class VoiceEngineManager(
             val mediaPlayer = android.media.MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
                         .build()
                 )
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
@@ -725,7 +727,7 @@ class VoiceEngineManager(
 
     fun playEmergencyAlertSiren() {
         try {
-            val toneGenerator = android.media.ToneGenerator(AudioManager.STREAM_ALARM, 100)
+            val toneGenerator = android.media.ToneGenerator(AudioManager.STREAM_MUSIC, 100)
             toneGenerator.startTone(android.media.ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 1200)
             mainHandler.postDelayed({
                 try {

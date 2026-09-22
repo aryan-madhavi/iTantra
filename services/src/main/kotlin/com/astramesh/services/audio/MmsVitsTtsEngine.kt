@@ -266,6 +266,7 @@ class MmsVitsTtsEngine(
         }
 
         try {
+            var totalBytesWritten = 0
             for (chunk in chunks) {
                 if (!isEmergency && isEmergencyPlaybackActive) {
                     AstraLog.w(tag, "TTS playback aborted mid-speech by higher-priority emergency message")
@@ -274,7 +275,11 @@ class MmsVitsTtsEngine(
                 val pcmAudio = synthesizeChunkToPcm(chunk, language)
                 if (pcmAudio.isNotEmpty()) {
                     playPcmChunk(pcmAudio)
+                    totalBytesWritten += pcmAudio.size
                 }
+            }
+            if (totalBytesWritten > 0) {
+                drainAudioTrack(totalBytesWritten / 2, SttConfig.SAMPLE_RATE)
             }
         } catch (e: Exception) {
             AstraLog.e(tag, "Error during TTS playback: ${e.message}", e)
@@ -285,6 +290,20 @@ class MmsVitsTtsEngine(
             }
             onDone?.invoke()
         }
+    }
+
+    private fun drainAudioTrack(totalFramesWritten: Int, sampleRate: Int) {
+        val track = currentAudioTrack ?: return
+        try {
+            val maxWaitMs = ((totalFramesWritten * 1000L) / sampleRate) + 300L
+            val startTime = System.currentTimeMillis()
+            while (track.playState == AudioTrack.PLAYSTATE_PLAYING &&
+                track.playbackHeadPosition < totalFramesWritten &&
+                (System.currentTimeMillis() - startTime) < maxWaitMs
+            ) {
+                Thread.sleep(25)
+            }
+        } catch (_: Exception) {}
     }
 
     /**
@@ -407,10 +426,10 @@ class MmsVitsTtsEngine(
                 isEmergencyPlaybackActive = true
                 try {
                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                    val maxAlarmVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_ALARM) ?: 100
-                    audioManager?.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarmVol, 0)
+                    val maxMusicVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 100
+                    audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusicVol, 0)
                 } catch (e: Exception) {
-                    AstraLog.w(tag, "Could not set stream alarm max volume: ${e.message}")
+                    AstraLog.w(tag, "Could not set stream music max volume: ${e.message}")
                 }
             }
 
@@ -421,16 +440,15 @@ class MmsVitsTtsEngine(
                 AudioFormat.ENCODING_PCM_16BIT
             ) * 2
 
-            val usage = if (isEmergency) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_VOICE_COMMUNICATION
+            val usage = AudioAttributes.USAGE_MEDIA
             val contentType = if (isEmergency) AudioAttributes.CONTENT_TYPE_SONIFICATION else AudioAttributes.CONTENT_TYPE_SPEECH
-            val streamType = if (isEmergency) AudioManager.STREAM_ALARM else AudioManager.STREAM_VOICE_CALL
 
             currentAudioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(usage)
                         .setContentType(contentType)
-                        .setLegacyStreamType(streamType)
+                        .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
                         .build()
                 )
                 .setAudioFormat(
