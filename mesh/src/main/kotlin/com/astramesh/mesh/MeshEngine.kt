@@ -393,18 +393,19 @@ class MeshEngine(
                         ithantra.messageType == com.astramesh.core.MessageType.SOS ||
                         com.astramesh.core.EmergencyClassifier.isEmergency(ithantra.text, ithantra.language)
 
+                val translationEnabled = com.astramesh.core.TranslationSettings.isTranslationEnabled.value
+                val shouldTranslate = translationEnabled && ithantra.language != listenerLang
+                
+                var translatedTextOutput: String? = null
+                var translatedLanguageOutput: com.astramesh.core.Language? = null
+                var wasTranslatedOutput = false
                 val textToSpeak: String
                 val speechLanguage: com.astramesh.core.Language
                 val snippet: String
 
                 AstraLog.d("MeshEngine", "[VOICE_RX] Received from ${packet.source.toHex()} source=${ithantra.language.name} target=${listenerLang.name} text=\"${ithantra.text}\"")
 
-                if (ithantra.language == listenerLang) {
-                    textToSpeak = ithantra.text
-                    speechLanguage = listenerLang
-                    snippet = if (isEmergency) "[EMERGENCY ALERT]: ${ithantra.text}" else "[Voice Note]: ${ithantra.text}"
-                    AstraLog.d("MeshEngine", "[TRANSLATION path=\"same_lang\"] ${ithantra.language.name} -> ${listenerLang.name}")
-                } else {
+                if (shouldTranslate) {
                     AstraLog.d("MeshEngine", "[TRANSLATION_INPUT] source=${ithantra.language.name} target=${listenerLang.name} text=\"${ithantra.text}\"")
                     val translated = speechSynthesizer?.translateText(
                         ithantra.text,
@@ -415,10 +416,27 @@ class MeshEngine(
                         ithantra.language,
                         listenerLang
                     )
-                    AstraLog.d("MeshEngine", "[TRANSLATION_OUTPUT] target=${listenerLang.name} text=\"$translated\"")
-                    textToSpeak = translated
-                    speechLanguage = listenerLang
-                    snippet = if (isEmergency) "[EMERGENCY ALERT ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated" else "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
+                    
+                    if (translated.isNotEmpty()) {
+                        AstraLog.d("MeshEngine", "[TRANSLATION_OUTPUT] target=${listenerLang.name} text=\"$translated\"")
+                        translatedTextOutput = translated
+                        translatedLanguageOutput = listenerLang
+                        wasTranslatedOutput = true
+                        
+                        textToSpeak = translated
+                        speechLanguage = listenerLang
+                        snippet = if (isEmergency) "[EMERGENCY ALERT ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated" else "[Voice Note ${ithantra.language.englishName} -> ${listenerLang.englishName}]: $translated"
+                    } else {
+                        // Translation failed or returned empty
+                        textToSpeak = ithantra.text
+                        speechLanguage = ithantra.language
+                        snippet = if (isEmergency) "[EMERGENCY ALERT]: ${ithantra.text}" else "[Voice Note]: ${ithantra.text}"
+                    }
+                } else {
+                    textToSpeak = ithantra.text
+                    speechLanguage = ithantra.language
+                    snippet = if (isEmergency) "[EMERGENCY ALERT]: ${ithantra.text}" else "[Voice Note]: ${ithantra.text}"
+                    AstraLog.d("MeshEngine", "[TRANSLATION path=\"skipped\"] ${ithantra.language.name} -> ${listenerLang.name} (enabled=$translationEnabled)")
                 }
 
                 // 3. Persist voice note in DB
@@ -435,6 +453,11 @@ class MeshEngine(
                     recipientId = packet.destination,
                     timestamp = ithantra.timestamp,
                     content = snippet,
+                    originalText = ithantra.text,
+                    originalLanguage = ithantra.language.name,
+                    translatedText = translatedTextOutput,
+                    translatedLanguage = translatedLanguageOutput?.name,
+                    wasTranslated = wasTranslatedOutput,
                     contentType = if (isEmergency) com.astramesh.domain.model.MessageContentType.SYSTEM_ALERT else com.astramesh.domain.model.MessageContentType.AUDIO_NOTE,
                     status = com.astramesh.domain.model.MessageStatus.DELIVERED,
                     priority = if (isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
@@ -496,8 +519,59 @@ class MeshEngine(
             if (isVoice) {
                 val voicePayload = com.astramesh.core.VoicePayload.deserialize(packet.payload)
                 val isEmergency = packet.flags.isEmergency || voicePayload.mode == com.astramesh.core.VoiceMode.EMERGENCY
-                val textToSpeak = voicePayload.transcript.takeIf { it.isNotBlank() }
-                val snippet = if (textToSpeak != null) "[Voice Note]: $textToSpeak" else "[Voice Note ${voicePayload.mode.name}]"
+                val sourceText = voicePayload.transcript.takeIf { it.isNotBlank() } ?: ""
+                val sourceLanguage = if (sourceText.isNotBlank()) {
+                    com.astramesh.core.OfflineLanguageDetector.detect(sourceText).language
+                } else {
+                    com.astramesh.core.Language.HINDI
+                }
+                
+                val translationEnabled = com.astramesh.core.TranslationSettings.isTranslationEnabled.value
+                val shouldTranslate = translationEnabled && sourceLanguage != preferredLanguage
+                
+                var translatedTextOutput: String? = null
+                var translatedLanguageOutput: com.astramesh.core.Language? = null
+                var wasTranslatedOutput = false
+                val textToSpeak: String
+                val speechLanguage: com.astramesh.core.Language
+                val snippet: String
+
+                AstraLog.d("MeshEngine", "[VOICE_RX] Received from ${packet.source.toHex()} source=${sourceLanguage.name} target=${preferredLanguage.name} text=\"$sourceText\"")
+
+                if (sourceText.isNotEmpty()) {
+                    if (shouldTranslate) {
+                        AstraLog.d("MeshEngine", "[TRANSLATION_INPUT] source=${sourceLanguage.name} target=${preferredLanguage.name} text=\"$sourceText\"")
+                        val translated = try {
+                            speechSynthesizer?.translateText(sourceText, sourceLanguage, preferredLanguage)
+                                ?: com.astramesh.core.OfflineTranslationEngine.translate(sourceText, sourceLanguage, preferredLanguage)
+                        } catch (e: Exception) {
+                            ""
+                        }
+                        
+                        if (translated.isNotEmpty()) {
+                            AstraLog.d("MeshEngine", "[TRANSLATION_OUTPUT] target=${preferredLanguage.name} text=\"$translated\"")
+                            translatedTextOutput = translated
+                            translatedLanguageOutput = preferredLanguage
+                            wasTranslatedOutput = true
+                            textToSpeak = translated
+                            speechLanguage = preferredLanguage
+                            snippet = if (isEmergency) "[EMERGENCY ALERT ${sourceLanguage.englishName} -> ${preferredLanguage.englishName}]: $translated" else "[Voice Note ${sourceLanguage.englishName} -> ${preferredLanguage.englishName}]: $translated"
+                        } else {
+                            textToSpeak = sourceText
+                            speechLanguage = sourceLanguage
+                            snippet = if (isEmergency) "[EMERGENCY ALERT]: $sourceText" else "[Voice Note]: $sourceText"
+                        }
+                    } else {
+                        textToSpeak = sourceText
+                        speechLanguage = sourceLanguage
+                        snippet = if (isEmergency) "[EMERGENCY ALERT]: $sourceText" else "[Voice Note]: $sourceText"
+                        AstraLog.d("MeshEngine", "[TRANSLATION path=\"skipped\"] ${sourceLanguage.name} -> ${preferredLanguage.name} (enabled=$translationEnabled)")
+                    }
+                } else {
+                    textToSpeak = ""
+                    speechLanguage = sourceLanguage
+                    snippet = if (isEmergency) "[EMERGENCY ALERT ${voicePayload.mode.name}]" else "[Voice Note ${voicePayload.mode.name}]"
+                }
 
                 val chatId = if (packet.destination.isBroadcast) {
                     com.astramesh.core.ChatId("chat_broadcast")
@@ -512,6 +586,11 @@ class MeshEngine(
                     recipientId = packet.destination,
                     timestamp = System.currentTimeMillis(),
                     content = snippet,
+                    originalText = sourceText,
+                    originalLanguage = sourceLanguage.name,
+                    translatedText = translatedTextOutput,
+                    translatedLanguage = translatedLanguageOutput?.name,
+                    wasTranslated = wasTranslatedOutput,
                     contentType = if (isEmergency) com.astramesh.domain.model.MessageContentType.SYSTEM_ALERT else com.astramesh.domain.model.MessageContentType.AUDIO_NOTE,
                     status = com.astramesh.domain.model.MessageStatus.DELIVERED,
                     priority = if (isEmergency) com.astramesh.domain.model.MessagePriority.EMERGENCY else com.astramesh.domain.model.MessagePriority.DIRECT_MESSAGE
@@ -537,14 +616,9 @@ class MeshEngine(
                     )
                 )
 
-                textToSpeak?.let { text ->
+                if (textToSpeak.isNotEmpty()) {
                     try {
-                        val translated = if (preferredLanguage == com.astramesh.core.Language.HINDI) {
-                            text
-                        } else {
-                            com.astramesh.core.OfflineTranslationEngine.translate(text, com.astramesh.core.Language.HINDI, preferredLanguage)
-                        }
-                        speechSynthesizer?.synthesizeAndPlay(translated, preferredLanguage, isEmergency)
+                        speechSynthesizer?.synthesizeAndPlay(textToSpeak, speechLanguage, isEmergency)
                     } catch (e: Exception) {
                         AstraLog.e("MeshEngine", "TTS playback failed", e)
                     }

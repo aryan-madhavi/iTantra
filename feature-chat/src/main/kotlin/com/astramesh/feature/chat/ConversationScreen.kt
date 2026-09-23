@@ -404,7 +404,27 @@ fun ConversationScreen(
                                     message = message,
                                     localNodeId = localNodeId,
                                     localLanguage = speechLanguage,
-                                    onReplay = { viewModel.playVoiceMessage(message.content) }
+                                    onReplayOriginal = { 
+                                        val text = if (message.originalText.isNotEmpty()) message.originalText else {
+                                            message.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
+                                        }
+                                        val langObj = if (message.originalLanguage.isNotEmpty()) {
+                                            com.astramesh.core.Language.fromCode(message.originalLanguage)
+                                        } else {
+                                            speechLanguage
+                                        }
+                                        viewModel.playVoiceMessage(text, langObj) 
+                                    },
+                                    onReplayTranslated = { 
+                                        val tText = message.translatedText ?: ""
+                                        val tLang = message.translatedLanguage
+                                        val langObj = if (!tLang.isNullOrEmpty()) {
+                                            com.astramesh.core.Language.fromCode(tLang)
+                                        } else {
+                                            speechLanguage
+                                        }
+                                        viewModel.playVoiceMessage(tText, langObj)
+                                    }
                                 )
                             }
                         }

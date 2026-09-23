@@ -44,7 +44,7 @@ class AstraConverters {
         SessionKeyEntity::class,
         AuditLogEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(AstraConverters::class)
@@ -60,5 +60,15 @@ abstract class AstraDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "astramesh.db"
+
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN originalText TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN originalLanguage TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN translatedText TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN translatedLanguage TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN wasTranslated INTEGER NOT NULL DEFAULT 0")
+            }
+        }
     }
 }

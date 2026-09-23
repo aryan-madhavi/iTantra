@@ -288,18 +288,41 @@ fun parseMessageContent(rawContent: String, localLanguage: Language? = null): Pa
 fun TacticalMessageLogItem(
     message: Message,
     localNodeId: NodeId,
-    onReplay: () -> Unit,
+    onReplayOriginal: () -> Unit,
+    onReplayTranslated: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    localLanguage: Language? = null,
-    untranslatedLangCode: String? = null
+    localLanguage: Language? = null
 ) {
     val isFromMe = message.senderId == localNodeId
     val isEmergency = message.priority == MessagePriority.EMERGENCY
     var showDetailsDialog by remember { mutableStateOf(false) }
 
-    val parsed = remember(message.content, localLanguage) { parseMessageContent(message.content, localLanguage) }
-    val displayTranslationBadge = parsed.translationBadge ?: untranslatedLangCode
-    val isUntranslatedBadge = parsed.isUntranslated || (untranslatedLangCode != null && parsed.translationBadge == null)
+    val hasNewModel = message.originalText.isNotEmpty()
+    val displayTranslationBadge: String?
+    val isUntranslatedBadge: Boolean
+    val displayText: String
+    val isEmergencyAlert: Boolean
+
+    if (hasNewModel) {
+        val tLang = message.translatedLanguage
+        val tText = message.translatedText
+        if (message.wasTranslated && tLang != null) {
+            displayTranslationBadge = "${message.originalLanguage.take(2).uppercase(Locale.ROOT)} → ${tLang.take(2).uppercase(Locale.ROOT)}"
+            isUntranslatedBadge = false
+            displayText = tText ?: message.originalText
+        } else {
+            displayTranslationBadge = message.originalLanguage.take(2).uppercase(Locale.ROOT)
+            isUntranslatedBadge = true
+            displayText = message.originalText
+        }
+        isEmergencyAlert = isEmergency
+    } else {
+        val parsed = remember(message.content, localLanguage) { parseMessageContent(message.content, localLanguage) }
+        displayTranslationBadge = parsed.translationBadge
+        isUntranslatedBadge = parsed.isUntranslated
+        displayText = parsed.cleanText
+        isEmergencyAlert = parsed.isEmergencyAlert
+    }
 
     Card(
         onClick = {
@@ -429,7 +452,13 @@ fun TacticalMessageLogItem(
 
                     // Replay button
                     IconButton(
-                        onClick = onReplay,
+                        onClick = {
+                            if (hasNewModel && message.wasTranslated && onReplayTranslated != null) {
+                                onReplayTranslated()
+                            } else {
+                                onReplayOriginal()
+                            }
+                        },
                         modifier = Modifier.size(22.dp)
                     ) {
                         Icon(
@@ -446,7 +475,7 @@ fun TacticalMessageLogItem(
 
             // Message Body text: 2 lines collapsed preview in list
             Text(
-                text = parsed.cleanText,
+                text = displayText,
                 color = AstraTextPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
@@ -542,29 +571,84 @@ fun TacticalMessageLogItem(
 
                     HorizontalDivider(color = AstraOutline.copy(alpha = 0.3f), thickness = 0.5.dp)
 
-                    // Full Message Content Box
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(AstraBackground.copy(alpha = 0.8f))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            text = "MESSAGE CONTENT",
-                            color = AstraTextSecondary,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        Text(
-                            text = parsed.cleanText,
-                            color = AstraTextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal,
-                            lineHeight = 18.sp
-                        )
+                    val tText = message.translatedText
+                    val tLang = message.translatedLanguage
+                    if (hasNewModel && message.wasTranslated && tText != null) {
+                        // Original Content Box
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AstraBackground.copy(alpha = 0.5f))
+                                .border(1.dp, AstraOutline.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = "ORIGINAL (${message.originalLanguage.uppercase(Locale.ROOT)})",
+                                color = AstraTextSecondary,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            Text(
+                                text = message.originalText,
+                                color = AstraTextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        // Translated Content Box
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AstraBackground.copy(alpha = 0.8f))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = "TRANSLATED (${tLang?.uppercase(Locale.ROOT) ?: ""})",
+                                color = AstraCyan,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            Text(
+                                text = tText,
+                                color = AstraTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    } else {
+                        // Full Message Content Box
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AstraBackground.copy(alpha = 0.8f))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = if (hasNewModel) "ORIGINAL (${message.originalLanguage.uppercase(Locale.ROOT)})" else "MESSAGE CONTENT",
+                                color = AstraTextSecondary,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            Text(
+                                text = displayText,
+                                color = AstraTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 18.sp
+                            )
+                        }
                     }
 
                     // Metadata Details Box
@@ -597,20 +681,53 @@ fun TacticalMessageLogItem(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                onReplay()
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (isEmergency) AstraCrimson else AstraCyan
-                            ),
-                            border = BorderStroke(1.dp, if (isEmergency) AstraCrimson.copy(alpha = 0.6f) else AstraCyan.copy(alpha = 0.6f)),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("REPLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        if (hasNewModel && message.wasTranslated && onReplayTranslated != null) {
+                            Column(
+                                modifier = Modifier.weight(2f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { onReplayOriginal() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = AstraTextSecondary
+                                    ),
+                                    border = BorderStroke(1.dp, AstraOutline.copy(alpha = 0.4f)),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("ORIGINAL", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                
+                                OutlinedButton(
+                                    onClick = { onReplayTranslated() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = if (isEmergency) AstraCrimson else AstraCyan
+                                    ),
+                                    border = BorderStroke(1.dp, if (isEmergency) AstraCrimson.copy(alpha = 0.6f) else AstraCyan.copy(alpha = 0.6f)),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("TRANSLATED", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { onReplayOriginal() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = if (isEmergency) AstraCrimson else AstraCyan
+                                ),
+                                border = BorderStroke(1.dp, if (isEmergency) AstraCrimson.copy(alpha = 0.6f) else AstraCyan.copy(alpha = 0.6f)),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("REPLAY", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
                         }
 
                         Button(

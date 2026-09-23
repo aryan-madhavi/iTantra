@@ -29,7 +29,9 @@ object DatabaseModule {
             context,
             AstraDatabase::class.java,
             AstraDatabase.DATABASE_NAME
-        ).fallbackToDestructiveMigration().build()
+        ).addMigrations(AstraDatabase.MIGRATION_1_2)
+         .fallbackToDestructiveMigration()
+         .build()
     }
 
     @Provides

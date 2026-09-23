@@ -986,11 +986,32 @@ fun HomeScreen(
                                 message = msg,
                                 localNodeId = localNodeId,
                                 localLanguage = selectedLanguage,
-                                onReplay = {
-                                    val cleanText = msg.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
+                                onReplayOriginal = {
+                                    val text = if (msg.originalText.isNotEmpty()) msg.originalText else {
+                                        msg.content.replace(Regex("^\\[.*?\\]:?\\s*"), "").trim()
+                                    }
+                                    val langObj = if (msg.originalLanguage.isNotEmpty()) {
+                                        com.astramesh.core.Language.fromCode(msg.originalLanguage)
+                                    } else {
+                                        selectedLanguage
+                                    }
                                     voiceEngineManager?.speakText(
-                                        text = cleanText,
-                                        language = selectedLanguage,
+                                        text = text,
+                                        language = langObj,
+                                        isEmergency = msg.priority == MessagePriority.EMERGENCY
+                                    )
+                                },
+                                onReplayTranslated = {
+                                    val tText = msg.translatedText ?: ""
+                                    val tLang = msg.translatedLanguage
+                                    val langObj = if (!tLang.isNullOrEmpty()) {
+                                        com.astramesh.core.Language.fromCode(tLang)
+                                    } else {
+                                        selectedLanguage
+                                    }
+                                    voiceEngineManager?.speakText(
+                                        text = tText,
+                                        language = langObj,
                                         isEmergency = msg.priority == MessagePriority.EMERGENCY
                                     )
                                 }
