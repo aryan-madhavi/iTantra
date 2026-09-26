@@ -141,6 +141,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        AstraLog.i("MainActivity", "[UI_EVENT] APP_FOREGROUND")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AstraLog.i("MainActivity", "[UI_EVENT] APP_BACKGROUND")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        AstraLog.i("MainActivity", "[UI_EVENT] APP_UI_CLOSED")
+    }
+
     private fun startMeshForegroundService() {
         val intent = Intent(this, AstraMeshForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

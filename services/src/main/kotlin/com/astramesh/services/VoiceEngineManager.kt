@@ -96,10 +96,13 @@ class VoiceEngineManager(
         return nllbEngine ?: synchronized(nllbLock) {
             nllbIdleJob?.cancel()
             nllbIdleJob = null
-            nllbEngine ?: NllbTranslationEngine(context).also { 
-                nllbEngine = it
+            if (nllbEngine == null) {
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] LOAD_START engine=NLLB")
+                nllbEngine = NllbTranslationEngine(context)
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] LOAD_COMPLETE engine=NLLB")
                 AstraLog.i(TAG, "ASTRA_VOICE: NLLB Translation Engine initialized on-demand")
             }
+            nllbEngine!!
         }
     }
 
@@ -107,10 +110,13 @@ class VoiceEngineManager(
         synchronized(sttLock) {
             sttIdleJob?.cancel()
             sttIdleJob = null
-            return sttEngine ?: IndicConformerSttEngine(context).also {
-                sttEngine = it
+            if (sttEngine == null) {
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] LOAD_START engine=STT")
+                sttEngine = IndicConformerSttEngine(context)
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] LOAD_COMPLETE engine=STT")
                 AstraLog.i(TAG, "ASTRA_VOICE: IndicConformer STT Engine initialized on-demand for active speech session")
             }
+            return sttEngine!!
         }
     }
 
@@ -134,6 +140,7 @@ class VoiceEngineManager(
             sttEngine?.let {
                 it.release()
                 sttEngine = null
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] DISPOSE engine=STT reason=idle_timeout")
                 AstraLog.i(TAG, "ASTRA_VOICE: STT engine idle timeout expired ($STT_IDLE_TIMEOUT_MS ms) — IndicConformer INT8 ONNX session released from RAM")
             }
         }
@@ -159,6 +166,7 @@ class VoiceEngineManager(
             nllbEngine?.let {
                 it.release()
                 nllbEngine = null
+                AstraLog.i(TAG, "[MODEL_LIFECYCLE] DISPOSE engine=NLLB reason=idle_timeout")
                 AstraLog.i(TAG, "ASTRA_VOICE: NLLB engine idle timeout expired ($NLLB_IDLE_TIMEOUT_MS ms) — INT8 ONNX session released from RAM")
             }
         }
@@ -609,8 +617,10 @@ class VoiceEngineManager(
             return dictResult
         }
         // Lazy neural fallback via NLLB-200 INT8 ONNX engine
+        AstraLog.i(TAG, "[MODEL_LIFECYCLE] TRANSLATION_START engine=NLLB source=${sourceLang.name} target=${targetLang.name}")
         val nllb = getOrInitNllbEngine()
         val nllbResult = nllb.translate(text, sourceLang, targetLang)
+        AstraLog.i(TAG, "[MODEL_LIFECYCLE] TRANSLATION_END engine=NLLB source=${sourceLang.name} target=${targetLang.name}")
         val path = if (nllbResult != text && nllbResult.isNotBlank()) "nllb" else "none"
         AstraLog.d(TAG, "ASTRA_VOICE: [TRANSLATION path=\"$path\"] ${sourceLang.name} -> ${targetLang.name}: '$text' -> '$nllbResult'")
         scheduleNllbIdleUnload()

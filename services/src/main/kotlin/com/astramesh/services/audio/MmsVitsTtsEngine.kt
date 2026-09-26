@@ -161,6 +161,7 @@ class MmsVitsTtsEngine(
             activeSession?.let { oldSession ->
                 try {
                     oldSession.close()
+                    AstraLog.i(tag, "[MODEL_LIFECYCLE] DISPOSE engine=TTS reason=language_switch")
                     AstraLog.i(tag, "MMS-TTS: Explicitly closed and released ONNX session for ${activeLanguage?.name} to enforce single-model RAM footprint")
                 } catch (e: Exception) {
                     AstraLog.w(tag, "MMS-TTS: Error closing previous session: ${e.message}")
@@ -185,9 +186,11 @@ class MmsVitsTtsEngine(
                     val options = OrtSession.SessionOptions().apply {
                         setIntraOpNumThreads(2)
                     }
+                    AstraLog.i(tag, "[MODEL_LIFECYCLE] LOAD_START engine=TTS")
                     val session = env.createSession(modelFile.absolutePath, options)
                     activeSession = session
                     activeLanguage = language
+                    AstraLog.i(tag, "[MODEL_LIFECYCLE] LOAD_COMPLETE engine=TTS")
                     AstraLog.i(tag, "Loaded MMS-TTS ONNX session for ${language.name} from '${modelFile.absolutePath}' (${modelFile.length()} bytes). Single model resident in RAM.")
                     return session
                 } else {
@@ -216,6 +219,7 @@ class MmsVitsTtsEngine(
             activeSession?.let { session ->
                 try {
                     session.close()
+                    AstraLog.i(tag, "[MODEL_LIFECYCLE] DISPOSE engine=TTS reason=idle_timeout")
                     AstraLog.i(tag, "MMS-TTS: Unloaded and released active model for ${activeLanguage?.name}")
                 } catch (e: Exception) {
                     AstraLog.w(tag, "MMS-TTS: Error unloading model: ${e.message}")

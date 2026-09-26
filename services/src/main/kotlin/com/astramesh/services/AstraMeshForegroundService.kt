@@ -40,6 +40,7 @@ class AstraMeshForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        AstraLog.i("AstraMeshService", "[SERVICE_STATE] STARTED")
         powerCoordinator = PowerOptimizationCoordinator(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("AstraMesh Active - Listening for peers"))
@@ -47,12 +48,14 @@ class AstraMeshForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        AstraLog.i("AstraMeshService", "[SERVICE_STATE] RUNNING")
         powerCoordinator.acquireTemporaryWakeLock(timeoutMillis = 10_000L)
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        AstraLog.i("AstraMeshService", "[SERVICE_STATE] STOPPED")
         powerCoordinator.releaseWakeLock()
         AstraLog.i("AstraMeshService", "Foreground service destroyed")
     }

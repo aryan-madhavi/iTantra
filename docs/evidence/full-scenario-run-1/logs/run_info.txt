@@ -1,0 +1,6 @@
+Run label: full-scenario-run-1
+Started: 2026-09-25 21:10:58
+Package: com.astra.itantra.debug
+Sender device:   RZCT80JRLJH (SM-G781B)
+Receiver device: eb381d4b (GM1911)
+Sampling interval: 1s

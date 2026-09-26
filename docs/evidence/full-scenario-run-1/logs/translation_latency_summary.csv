@@ -1,0 +1,4 @@
+request_num,start_s,end_s,duration_ms,duration_s,load_time_s,inference_time_s,classification,badge,category,pair,source_lang,target_lang,notes,detail
+1,119,133,14000.0,14.0,13.0,1.0,cold_initial,COLD — Initial,Cold Request (Initial Load),HI → MA,HINDI,MARATHI,On-demand initial NLLB load (13.0s) + inference (1.0s),engine=NLLB source=HINDI target=MARATHI
+2,180,180,120.0,0.12,0.0,0.12,warm,WARM — Resident,Warm Request (Model Resident in RAM),HI → MA,HINDI,MARATHI,Pure translation inference on resident NLLB model (<0.2s),engine=NLLB source=HINDI target=MARATHI
+3,287,296,9000.0,9.0,8.0,1.0,cold_reload,COLD — Reload,Cold Request (Reload after Timeout),HI → MA,HINDI,MARATHI,On-demand NLLB reload (8.0s) + inference (1.0s) after 60s idle unload,engine=NLLB source=HINDI target=MARATHI
