@@ -83,7 +83,7 @@ Implemented primarily via `MeshEngine` and `:routing` utilities.
 - **Translation:** NLLB-200 provides translation via ONNX Runtime. `OfflineLanguageDetector` deduces source language for `Voice` packets lacking explicit metadata.
 - **Memory Management:** Extreme PSS spikes (~2.2 GB) occur during NLLB loads. A strict idle timeout (60 seconds) invokes `DISPOSE` to collapse PSS back to ~260 MB. 
 
-![On-Device Model Lifecycle and Memory Footprint — Dual-Device Timeline](evidence/full-scenario-run-1/charts/svg/prompt-2.svg)
+![On-Device Model Lifecycle and Memory Footprint — Dual-Device Timeline](evidence/full-scenario-run-1/charts/model-lifecycle-and-memory-footprint.svg)
 
 *Figure: Correlated receiver/sender PSS over the full test session, with model residency windows (NLLB, STT, TTS) and application UI state (foreground/background/closed) plotted on the same time axis — see the Technical Validation Report, Section 9, for full experimental methodology and numbered-marker detail.*
 

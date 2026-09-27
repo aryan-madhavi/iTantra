@@ -36,7 +36,7 @@ Measurements were collected by correlating logcat timestamps with `dumpsys` outp
 - **Cold Load:** Initial NLLB inference took **14.0 seconds** total (13.0s load from flash + 1.0s inference). Reload after disposal took **9.0 seconds** (8.0s load + 1.0s inference).
 - **Warm Inference:** The derived telemetry states a **0.12s** latency, corresponding to a **116.7x speedup**.
 
-![NLLB Translation Latency: Cold Load vs Warm Inference](evidence/full-scenario-run-1/charts/svg/prompt-3.svg)
+![NLLB Translation Latency: Cold Load vs Warm Inference](evidence/full-scenario-run-1/charts/nllb-translation-latency.svg)
 
 > **Note on the chart above:** The middle bar's "0.12 s" label is sourced from internal inference-bench telemetry, the raw logcat evidence for this request shows both `TRANSLATION_START` and `TRANSLATION_END` at the identical integer second (`t=180s`), which supports the claim that warm inference completed in **under 1 second**. The qualitative finding illustrated here — that warm (resident-model) inference is dramatically faster than either cold-load case — is reliable and well-supported.
 
@@ -46,7 +46,7 @@ Measurements were collected by correlating logcat timestamps with `dumpsys` outp
 - **Post-Disposal Baseline:** ~262 MB PSS (88.5% reduction).
 - **Background Retention:** Application PSS remains steady at ~181 MB (Receiver) and ~295 MB (Sender) after the UI is closed, confirming foreground service persistence without uncontrolled leaks.
 
-![On-Device Model Lifecycle and Memory Footprint — Dual-Device Timeline](evidence/full-scenario-run-1/charts/svg/prompt-2.svg)
+![On-Device Model Lifecycle and Memory Footprint — Dual-Device Timeline](evidence/full-scenario-run-1/charts/model-lifecycle-and-memory-footprint.svg)
 
 *Figure: Correlated receiver/sender PSS over the full test session, with model residency windows (NLLB, STT, TTS) and application UI state (foreground/background/closed) plotted on the same time axis. Numbered markers correspond to: (1) NLLB load start t=119s, (2) NLLB ready t=132s, (3) NLLB idle disposal t=240s, (4) NLLB reload t=287s, (5) translation disabled t=399s, (6) UI closed t=508s.*
 
